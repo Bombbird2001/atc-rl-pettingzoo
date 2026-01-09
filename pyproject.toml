@@ -1,0 +1,26 @@
+[project]
+name = "atc-rl-pettingzoo"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.3.3",
+    "pettingzoo>=1.25.0",
+    "scikit-learn>=1.8.0",
+    "supersuit>=3.10.0",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu" },
+]
