@@ -219,21 +219,21 @@ if __name__ == "__main__":
                 terminations[step] = next_termination
                 truncations[step] = next_truncation
 
-                print(next_obs.shape)
-
                 # ALGO LOGIC: action logic
                 with torch.no_grad():
                     action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-1])
                     print(action.shape, logprob.shape, value.squeeze(dim=-1).shape)
                     values[step] = value.squeeze(dim=-1)
-                action = action.transpose(0, 1)
+                action = action.permute((1, 2, 0))  # Reshape action to (num_envs, aircraft_count, action_dim)
                 actions[step] = action
                 logprobs[step] = logprob
 
                 # TRY NOT TO MODIFY: execute the game and log data.
                 next_obs, reward, termination, truncation, info = envs.step(
-                    action.cpu().numpy()
+                    # Concat the aircraft mask, ignores actions generated for non-existent aircraft entries
+                    torch.cat((action, next_obs[:,:,-1].to(torch.int32).unsqueeze(-1)), dim=-1).cpu().numpy()
                 )
+                print(next_obs.shape, reward.shape, termination.shape, truncation.shape)
                 rewards[step] = torch.tensor(reward).to(device).view(-1)
                 next_obs, next_termination, next_truncation = (
                     torch.Tensor(next_obs).to(device),

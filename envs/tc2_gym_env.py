@@ -99,12 +99,12 @@ class TC2GymEnv(gym.Env):
     @staticmethod
     def _get_rewards_from_aircraft_state(aircraft_state) -> np.ndarray:
         # Also include agent ID for PettingZoo env
-        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[0, 16, 18]]
+        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[0, 16, 18]].astype(np.float32)
 
     @staticmethod
     def _get_terminated_from_aircraft_state(aircraft_state) -> np.ndarray:
         # Also include agent ID for PettingZoo env
-        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[17, 16, 18]]
+        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[17, 16, 18]].astype(np.int32)
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -174,12 +174,11 @@ class TC2GymEnv(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        aircraft_state = values[3 + AIRCRAFT_COUNT * 4:]
-        # print(values[3 + AIRCRAFT_COUNT * 4:])
+        aircraft_state = values[1 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
-        if terminated:
+        if terminated[:,0].all():
             self.terminated_count += 1
 
         info = {}

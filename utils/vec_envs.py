@@ -35,14 +35,26 @@ class SequentialVecEnv(BaseVecEnv):
         self.envs = envs
         self.agent_ordering = sorted(self.envs[0].possible_agents)
 
+    def _dict_obs_to_np(self, dict_obs: dict) -> np.ndarray:
+        # Additional one/zero at the end for masking
+        return np.vstack([(np.hstack((dict_obs[agentId], np.ones(1))) if agentId in dict_obs else np.zeros(self.single_observation_space.shape)) for agentId in self.agent_ordering])
+
+    def _dict_reward_to_np(self, dict_reward: dict) -> np.ndarray:
+        return np.array([(dict_reward[agentId] if agentId in dict_reward else 0) for agentId in self.agent_ordering])
+
+    def _dict_termination_to_np(self, dict_termination: dict) -> np.ndarray:
+        return np.array([(dict_termination[agentId] if agentId in dict_termination else 0) for agentId in self.agent_ordering])
+
+    def _dict_truncation_to_np(self, dict_truncation: dict) -> np.ndarray:
+        return np.array([(dict_truncation[agentId] if agentId in dict_truncation else 0) for agentId in self.agent_ordering])
+
     def reset(self, seed: int | None = None):
         observations = []
         infos = []
 
         for env in self.envs:
             obs, info = env.reset(seed=seed)
-            # Additional one/zero at the end for masking
-            obs_np = np.vstack([(np.hstack((obs[agentId], np.ones(1))) if agentId in obs else np.zeros(self.single_observation_space.shape)) for agentId in self.agent_ordering])
+            obs_np = self._dict_obs_to_np(obs)
             observations.append(obs_np)
             infos.append(info)
 
@@ -54,8 +66,25 @@ class SequentialVecEnv(BaseVecEnv):
         if action.shape[0] != len(self.envs):
             raise ValueError(f"action.shape[0] ({action.shape[0]}) != len(self.envs) ({len(self.envs)})")
 
+        observations = []
+        rewards = []
+        terminations = []
+        truncations = []
+        infos = []
+
         for idx, env in enumerate(self.envs):
-            env.step(action[idx])
+            obs, reward, termination, truncation, info = env.step(action[idx])
+            obs_np = self._dict_obs_to_np(obs)
+            reward_np = self._dict_reward_to_np(reward)
+            termination_np = self._dict_termination_to_np(termination)
+            truncation_np = self._dict_truncation_to_np(truncation)
+            observations.append(obs_np)
+            rewards.append(reward_np)
+            terminations.append(termination_np)
+            truncations.append(truncation_np)
+            infos.append(info)
+
+        return np.stack(observations), np.vstack(rewards), np.vstack(terminations), np.array(truncations), infos
 
     def close(self):
         for env in self.envs:
