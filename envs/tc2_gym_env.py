@@ -48,8 +48,8 @@ class TC2GymEnv(gym.Env):
         # +1 for aircraft masking
         self.OBS_SPACE_DIMENSION = 19
         self.observation_space = spaces.Box(
-            low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
-            high=np.repeat(1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
+            low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION),
+            high=np.repeat(1.0, self.OBS_SPACE_DIMENSION),
             dtype=np.float32
         )
 
@@ -71,14 +71,14 @@ class TC2GymEnv(gym.Env):
             print(f"[{self.instance_name}] Starting simulator")
             self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix}", shell=True)
 
-    def get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
+    def _get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
         tmp_state = np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,1:]
         # print(tmp_state)
         ac_types = np.array(tmp_state[:,:4], dtype=np.str_)
         ac_types = [[RECAT_MAPPING.get(ac_type, "Unknown")] for ac_type in (ac_types[:,0] + ac_types[:,1] + ac_types[:,2] + ac_types[:,3])]
         ac_type_one_hot = self.ac_type_one_hot_encoder.transform(ac_types).toarray()
         # Map
-        # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, LOC cap, mask, agent ID
+        # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, LOC cap, mask, terminated, agent ID
         # to
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
         # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)] + ["mask", "agent ID"]
@@ -91,15 +91,20 @@ class TC2GymEnv(gym.Env):
             np.sin(np.radians(ac_state[:,[8]])), np.cos(np.radians(ac_state[:,[8]])),
             (ac_state[:,[7, 9]] - np.array([0, SPD_BIAS])) / np.array([ALT_SCALE_DOWN, SPD_SCALE_DOWN]),
             ac_type_one_hot,
-            ac_state[:,[11, 12]]
+            ac_state[:,[11, 13]]
         ))
         # print(combined_ac_state.shape)
         return combined_ac_state
 
     @staticmethod
-    def get_rewards_from_aircraft_state(aircraft_state) -> np.ndarray:
+    def _get_rewards_from_aircraft_state(aircraft_state) -> np.ndarray:
         # Also include agent ID for PettingZoo env
-        return aircraft_state.reshape(AIRCRAFT_COUNT, -1)[:,[0, 11, 12]]
+        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[0, 16, 18]]
+
+    @staticmethod
+    def _get_terminated_from_aircraft_state(aircraft_state) -> np.ndarray:
+        # Also include agent ID for PettingZoo env
+        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[17, 16, 18]]
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -128,7 +133,7 @@ class TC2GymEnv(gym.Env):
 
         # Get state from shared memory
         values = self.sim_bridge.get_aircraft_state()
-        obs = self.get_observation_from_aircraft_state(values)
+        obs = self._get_observation_from_aircraft_state(values)
 
         info = {}
         self.episode += 1
@@ -136,6 +141,9 @@ class TC2GymEnv(gym.Env):
         return obs, info
 
     def step(self, action):
+        # Expects action of shape (AIRCRAFT_COUNT, 4)
+        # (Heading, altitude, speed, action mask) for each aircraft
+
         # Validate that simulator is ready to accept action (proceed flag)
         values = self.sim_bridge.get_total_state()
         proceed_flag = values[0]
@@ -168,9 +176,9 @@ class TC2GymEnv(gym.Env):
         values = self.sim_bridge.get_total_state()
         aircraft_state = values[3 + AIRCRAFT_COUNT * 4:]
         # print(values[3 + AIRCRAFT_COUNT * 4:])
-        obs = self.get_observation_from_aircraft_state(aircraft_state)
-        reward = self.get_rewards_from_aircraft_state(aircraft_state)
-        terminated = values[1]  # TODO Change terminated to be for individual aircraft
+        obs = self._get_observation_from_aircraft_state(aircraft_state)
+        reward = self._get_rewards_from_aircraft_state(aircraft_state)
+        terminated = self._get_terminated_from_aircraft_state(aircraft_state)
         if terminated:
             self.terminated_count += 1
 
@@ -186,15 +194,3 @@ class TC2GymEnv(gym.Env):
         if self.init_sim:
             print(f"[{self.instance_name}] Ending simulator process")
             self.sim_process.send_signal(signal.CTRL_C_EVENT if platform.system() == "Windows" else signal.SIGINT)
-
-
-def make_env(
-        env_id: int, ac_type_one_hot_encoder: OneHotEncoder,
-        auto_init_sim: bool, reset_print_period: int
-):
-    backing_env = TC2GymEnv(
-        ac_type_one_hot_encoder=ac_type_one_hot_encoder, render_mode="human",
-        reset_print_period=reset_print_period, instance_suffix=str(env_id),
-        init_sim=auto_init_sim
-    )
-    return backing_env

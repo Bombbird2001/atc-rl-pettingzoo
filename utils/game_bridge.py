@@ -14,19 +14,19 @@ elif os_name == "Darwin" or os_name == "Linux":
 
 class GameBridge(ABC):
     # Shared region:
-    # 4 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [2 bytes padding]
+    # 4 bytes constant: [proceed flag(1 byte)] [3 bytes padding]
     # 6 bytes per instruction: [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [validity(1 byte)] [1 byte padding]
-    # + 52 bytes per aircraft: [reward(4 bytes)] [state(48 bytes (4x chars, 7x floats, 3x ints, 2x byte (for bool), 1x byte (agent ID), 1 byte padding))]
-    CONSTANT_FORMAT = "b?xx"
+    # + 52 bytes per aircraft: [reward(4 bytes)] [state(48 bytes (4x chars, 7x floats, 3x ints, 3x byte (for locCap, validity, terminated), 1x byte (agent ID)))]
+    CONSTANT_FORMAT = "bxxx"
     CONSTANT_SIZE = 4
     PER_INSTRUCTION_FORMAT = "hbbbx"
     PER_INSTRUCTION_SIZE = 6
-    PER_AIRCRAFT_FORMAT = "fccccfffffffiiibbbx"
+    PER_AIRCRAFT_FORMAT = "fccccfffffffiiibbbb"
     PER_AIRCRAFT_SIZE = 52
-    ADDITIONAL_PADDING_FORMAT = "xx"
+    ADDITIONAL_PADDING_FORMAT = "x"
     ADDITIONAL_PADDING_SIZE = 2
     FILE_SIZE = CONSTANT_SIZE + AIRCRAFT_COUNT * PER_INSTRUCTION_SIZE + ADDITIONAL_PADDING_SIZE + AIRCRAFT_COUNT * PER_AIRCRAFT_SIZE
-    STRUCT_FORMAT = CONSTANT_FORMAT + AIRCRAFT_COUNT * PER_INSTRUCTION_FORMAT + ADDITIONAL_PADDING_FORMAT + AIRCRAFT_COUNT * PER_AIRCRAFT_FORMAT
+    STRUCT_FORMAT = CONSTANT_FORMAT + AIRCRAFT_COUNT * PER_INSTRUCTION_FORMAT + ADDITIONAL_PADDING_FORMAT * ADDITIONAL_PADDING_SIZE + AIRCRAFT_COUNT * PER_AIRCRAFT_FORMAT
 
     @abstractmethod
     def signal_trainer_initialized(self):
@@ -110,7 +110,7 @@ class WindowsGameBridge(GameBridge):
         state_start = self.__class__.FILE_SIZE - state_size
         self.mm.seek(state_start)
         return struct.unpack(
-            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
+            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + self.__class__.ADDITIONAL_PADDING_SIZE * len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
             self.mm.read(state_size)
         )
 
@@ -170,7 +170,7 @@ class UnixGameBridge(GameBridge):
         state_start = self.__class__.FILE_SIZE - state_size
         self.mm.seek(state_start)
         return struct.unpack(
-            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
+            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + self.__class__.ADDITIONAL_PADDING_SIZE * len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
             self.mm.read(state_size)
         )
 
