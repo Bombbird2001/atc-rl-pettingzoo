@@ -19,6 +19,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import traceback
 from collections import deque
 from common.constants import AIRCRAFT_COUNT
 from datetime import datetime
@@ -172,7 +173,7 @@ if __name__ == "__main__":
     envs = SequentialVecEnv.make_vec_env(
         args.num_envs, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=args.auto_init_sim, reset_print_period=30, max_steps=args.num_steps
+        init_sim=args.auto_init_sim, reset_print_period=50, max_steps=args.num_steps
     )
 
     try:
@@ -442,7 +443,8 @@ if __name__ == "__main__":
         model_path = f"runs/{run_name}/agent.pt"
         print(f"Saving model to {model_path}")
         torch.save(agent.state_dict(), model_path)
-    except:
+    except Exception as e:
+        print(traceback.format_exc())
         print("Error encountered during training")
     finally:
         print("Exiting and cleaning up")
