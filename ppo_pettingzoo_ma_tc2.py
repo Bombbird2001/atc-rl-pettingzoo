@@ -49,7 +49,7 @@ def parse_args():
                         help="the entity (team) of wandb's project")
     # parser.add_argument("--capture-video", action=argparse.BooleanOptionalAction, default=False,
     #                     help="whether to capture videos of the agent performances (check out `videos` folder)")
-    parser.add_argument("--auto-init-sim", action=argparse.BooleanOptionalAction, default=False,
+    parser.add_argument("--auto-init-sim", action=argparse.BooleanOptionalAction, default=True,
                         help="if toggled, will automatically initialize the simulators for the environment")
 
     # Algorithm specific arguments
