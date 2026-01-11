@@ -21,7 +21,7 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 class TC2GymEnv(gym.Env):
     def __init__(
-            self, ac_type_one_hot_encoder: OneHotEncoder, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
+            self, ac_type_one_hot_encoder: OneHotEncoder, is_eval=False, render_mode=None, reset_print_period=50, instance_suffix="",
             init_sim=True, max_steps=300
     ):
         super().__init__()
@@ -178,7 +178,7 @@ class TC2GymEnv(gym.Env):
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
-        if terminated[:,0].all():
+        if terminated[obs[:,-2].astype(np.bool)][:,0].all():
             self.terminated_count += 1
 
         info = {}

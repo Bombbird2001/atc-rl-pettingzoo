@@ -68,8 +68,8 @@ def parse_args():
                         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
                         help="the lambda for the general advantage estimation")
-    parser.add_argument("--num-minibatches", type=int, default=4,
-                        help="the number of mini-batches")
+    parser.add_argument("--minibatch-size", type=int, default=32,
+                        help="the size of mini-batches")
     parser.add_argument("--update-epochs", type=int, default=4,
                         help="the K epochs to update the policy")
     parser.add_argument("--norm-adv", action=argparse.BooleanOptionalAction, default=True,
@@ -88,7 +88,6 @@ def parse_args():
                         help="the target KL divergence threshold")
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps)
-    args.minibatch_size = int(args.batch_size // args.num_minibatches)
     # fmt: on
     return args
 
@@ -172,7 +171,7 @@ if __name__ == "__main__":
     envs = SequentialVecEnv.make_vec_env(
         args.num_envs, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=args.auto_init_sim, reset_print_period=1, max_steps=args.num_steps
+        init_sim=args.auto_init_sim, reset_print_period=10, max_steps=args.num_steps
     )
 
     try:
