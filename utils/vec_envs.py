@@ -1,6 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Callable, List, Optional, Tuple, Dict, Any
 
 
 class BaseVecEnv(ABC):
@@ -21,6 +21,10 @@ class BaseVecEnv(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def early_reset(self, env_idx: int, seed: int | None = None):
+        raise NotImplementedError
+
+    @abstractmethod
     def step(self, action: np.ndarray):
         raise NotImplementedError
 
@@ -34,6 +38,7 @@ class SequentialVecEnv(BaseVecEnv):
     def __init__(self, envs):
         self.envs = envs
         self.agent_ordering = sorted(self.envs[0].possible_agents)
+        self.early_reset_data: List[Optional[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]] = [None for _ in envs]
 
     def _dict_obs_to_np(self, dict_obs: dict) -> np.ndarray:
         # Additional one/zero at the end for masking
@@ -52,13 +57,25 @@ class SequentialVecEnv(BaseVecEnv):
         observations = []
         infos = []
 
-        for env in self.envs:
-            obs, info = env.reset(seed=seed)
+        for idx, env in enumerate(self.envs):
+            if self.early_reset_data[idx] is not None:
+                obs, info = self.early_reset_data[idx]
+            else:
+                obs, info = env.reset(seed=seed)
             obs_np = self._dict_obs_to_np(obs)
             observations.append(obs_np)
             infos.append(info)
 
+        self.early_reset_data = [None for _ in self.envs]
+
         return np.stack(observations), infos
+
+    def early_reset(self, env_idx: int, seed: int | None = None):
+        if self.early_reset_data[env_idx] is not None:
+            return
+
+        obs, info = self.envs[env_idx].reset(seed=seed)
+        self.early_reset_data[env_idx] = (obs, info)
 
     def step(self, action: np.ndarray):
         # Expects shape of (num_env, AIRCRAFT_COUNT, action_dimension + 1)
@@ -73,11 +90,19 @@ class SequentialVecEnv(BaseVecEnv):
         infos = []
 
         for idx, env in enumerate(self.envs):
-            obs, reward, termination, truncation, info = env.step(action[idx])
-            obs_np = self._dict_obs_to_np(obs)
-            reward_np = self._dict_reward_to_np(reward)
-            termination_np = self._dict_termination_to_np(termination)
-            truncation_np = self._dict_truncation_to_np(truncation)
+            if self.early_reset_data[idx] is not None:
+                # Already terminated early, return all 0s
+                obs_np = np.zeros((len(self.agent_ordering), ) + self.single_observation_space.shape)
+                reward_np = np.zeros(len(self.agent_ordering))
+                termination_np = np.zeros(len(self.agent_ordering))
+                truncation_np = np.zeros(len(self.agent_ordering))
+                info = {}
+            else:
+                obs, reward, termination, truncation, info = env.step(action[idx])
+                obs_np = self._dict_obs_to_np(obs)
+                reward_np = self._dict_reward_to_np(reward)
+                termination_np = self._dict_termination_to_np(termination)
+                truncation_np = self._dict_truncation_to_np(truncation)
             observations.append(obs_np)
             rewards.append(reward_np)
             terminations.append(termination_np)
