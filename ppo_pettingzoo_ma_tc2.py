@@ -19,6 +19,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from collections import deque
 from common.constants import AIRCRAFT_COUNT
 from datetime import datetime
 from envs.tc2_pettingzoo_env import make_env
@@ -52,8 +53,6 @@ def parse_args():
                         help="if toggled, will automatically initialize the simulators for the environment")
 
     # Algorithm specific arguments
-    # parser.add_argument("--env-id", type=str, default="pong_v3",
-    #                     help="the id of the environment")
     parser.add_argument("--total-timesteps", type=int, default=12000,  # CleanRL default: 2000000
                         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
@@ -62,6 +61,8 @@ def parse_args():
                         help="the number of parallel game environments")
     parser.add_argument("--num-steps", type=int, default=256,
                         help="the number of steps to run in each environment per policy rollout")
+    parser.add_argument("--max-agents", type=int, default=None,
+                        help="the maximum number of agents that can be present in game (this affects only the rollout buffer size)")
     parser.add_argument("--anneal-lr", action=argparse.BooleanOptionalAction, default=True,
                         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gamma", type=float, default=0.99,
@@ -87,7 +88,7 @@ def parse_args():
     parser.add_argument("--target-kl", type=float, default=None,
                         help="the target KL divergence threshold")
     args = parser.parse_args()
-    args.batch_size = int(args.num_envs * args.num_steps)
+    args.batch_size = int(args.num_envs * args.num_steps * args.max_agents)
     # fmt: on
     return args
 
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     envs = SequentialVecEnv.make_vec_env(
         args.num_envs, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=args.auto_init_sim, reset_print_period=10, max_steps=args.num_steps
+        init_sim=args.auto_init_sim, reset_print_period=30, max_steps=args.num_steps
     )
 
     try:
@@ -190,6 +191,9 @@ if __name__ == "__main__":
         num_updates = int(ceil(args.total_timesteps / args.batch_size))
 
         rollout_buffer = RolloutBuffer(args.batch_size)
+        reward_history_length = 30
+        reward_history = deque()
+        reward_history_sum = 0
 
         while True:
             # Start the game
@@ -408,15 +412,36 @@ if __name__ == "__main__":
                 writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
                 writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
                 writer.add_scalar("losses/explained_variance", explained_var, global_step)
-                print("SPS:", int(global_step / (time.time() - start_time)))
+                if update % 10 == 0:
+                    print("SPS:", int(global_step / (time.time() - start_time)))
                 writer.add_scalar(
                     "charts/SPS", int(global_step / (time.time() - start_time)), global_step
+                )
+
+                # Use the rewards obtained from this iteration before training to compute average reward
+                rewards = rewards.reshape(args.num_steps, -1)
+                avg_agent_reward = rewards.sum(dim=0).mean()
+                if update % 10 == 0:
+                    print("Average reward:", avg_agent_reward.item())
+                writer.add_scalar(
+                    "episode/average_agent_reward", avg_agent_reward.item(), global_step
+                )
+
+                # SMA of reward
+                reward_history.append(avg_agent_reward.item())
+                reward_history_sum += avg_agent_reward.item()
+                if len(reward_history) > reward_history_length:
+                    reward_history_sum -= reward_history.popleft()
+                writer.add_scalar(
+                    "episode/reward_sma", reward_history_sum / len(reward_history), global_step
                 )
 
                 # print(update, "of", num_updates)
                 if update >= num_updates:
                     break
-        torch.save(agent.state_dict(), f"runs/{run_name}/agent.pt")
+        model_path = f"runs/{run_name}/agent.pt"
+        print(f"Saving model to {model_path}")
+        torch.save(agent.state_dict(), model_path)
     except:
         print("Error encountered during training")
     finally:
