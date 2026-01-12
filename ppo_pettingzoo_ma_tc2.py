@@ -25,7 +25,7 @@ from common.constants import AIRCRAFT_COUNT
 from datetime import datetime
 from envs.tc2_pettingzoo_env import make_env
 from math import ceil
-from torch.distributions.categorical import Categorical
+from models.aircraft_agent import MLPAgent
 from torch.utils.tensorboard import SummaryWriter
 from utils.buffers import RolloutBuffer
 from utils.vec_envs import SequentialVecEnv
@@ -82,7 +82,7 @@ def parse_args():
                         help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
     parser.add_argument("--ent-coef", type=float, default=0.01,
                         help="coefficient of the entropy")
-    parser.add_argument("--vf-coef", type=float, default=0.5,
+    parser.add_argument("--vf-coef", type=float, default=0.1,
                         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.5,
                         help="the maximum norm for the gradient clipping")
@@ -92,50 +92,6 @@ def parse_args():
     args.batch_size = int(args.num_envs * args.num_steps * args.max_agents)
     # fmt: on
     return args
-
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
-
-
-class Agent(nn.Module):
-    def __init__(self, envs):
-        super().__init__()
-        # Simple MLP
-        # TODO Maybe try local/neighbouring aircraft info too (with GNN)
-        self.network = nn.Sequential(
-            layer_init(nn.Linear(18, 32)),
-            nn.ReLU(),
-            layer_init(nn.Linear(32, 64)),
-            nn.ReLU(),
-        )
-        self.action_space_dims = envs.single_action_space.nvec
-        self.actor = layer_init(nn.Linear(64, sum(self.action_space_dims)), std=0.01)
-        self.critic = layer_init(nn.Linear(64, 1), std=1)
-
-    def get_value(self, x):
-        # TODO Modify with GNN (centralized critic MAPPO)
-        # Current implementation is IPPO (no centralized critic)
-        x = x.clone()
-        return self.critic(self.network(x))
-
-    def get_action_and_value(self, x, action=None):
-        # Input shape: (..., feature_size)
-        # Modified to support MultiDiscrete
-        x = x.clone()
-        hidden = self.network(x)
-        logits = self.actor(hidden)
-        hdg_logits, alt_logits, spd_logits = logits.split(tuple(self.action_space_dims), dim=-1)
-        hdg_probs = Categorical(logits=hdg_logits)
-        alt_probs = Categorical(logits=alt_logits)
-        spd_probs = Categorical(logits=spd_logits)
-        if action is None:
-            action = torch.stack((hdg_probs.sample(), alt_probs.sample(), spd_probs.sample()))
-        log_prob = hdg_probs.log_prob(action[0]) + alt_probs.log_prob(action[1]) + spd_probs.log_prob(action[2])
-        entropy = hdg_probs.entropy() + alt_probs.entropy() + spd_probs.entropy()
-        return action, log_prob, entropy, self.critic(hidden)
 
 
 if __name__ == "__main__":
@@ -183,7 +139,7 @@ if __name__ == "__main__":
             envs.single_action_space, gym.spaces.MultiDiscrete
         ), "only multi-discrete action space is supported"
 
-        agent = Agent(envs).to(device)
+        agent = MLPAgent(envs).to(device)
         optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
         global_step = 0
@@ -253,24 +209,6 @@ if __name__ == "__main__":
                 terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
                 for env_idx in torch.where(terminating_envs)[0]:
                     envs.early_reset(env_idx.item(), args.seed)
-
-                # TODO: fix reward tracking and logging
-                # for idx, item in enumerate(info):
-                #     player_idx = idx % 2
-                #     if "episode" in item.keys():
-                #         print(
-                #             f"global_step={global_step}, {player_idx}-episodic_return={item['episode']['r']}"
-                #         )
-                #         writer.add_scalar(
-                #             f"charts/episodic_return-player{player_idx}",
-                #             item["episode"]["r"],
-                #             global_step,
-                #         )
-                #         writer.add_scalar(
-                #             f"charts/episodic_length-player{player_idx}",
-                #             item["episode"]["l"],
-                #             global_step,
-                #         )
 
             with torch.no_grad():
                 # Here, our inputs are such that every agent will only have a single continuous active period between spawn and despawn/truncation
@@ -420,7 +358,8 @@ if __name__ == "__main__":
                 )
 
                 # Use the rewards obtained from this iteration before training to compute average reward
-                rewards = rewards.reshape(args.num_steps, -1)
+                ac_mask = obs.reshape(args.num_steps, -1, envs.single_observation_space.shape[0])[:, :,-1].squeeze(dim=-1).to(torch.bool).any(dim=0)
+                rewards = rewards.reshape(args.num_steps, -1)[:,ac_mask]
                 avg_agent_reward = rewards.sum(dim=0).mean()
                 if update % 10 == 0:
                     print("Average reward:", avg_agent_reward.item())
@@ -441,6 +380,7 @@ if __name__ == "__main__":
                 if update >= num_updates:
                     break
         model_path = f"runs/{run_name}/agent.pt"
+        print(f"Finished training in {time.time() - start_time:.2f}s")
         print(f"Saving model to {model_path}")
         torch.save(agent.state_dict(), model_path)
     except Exception as e:
