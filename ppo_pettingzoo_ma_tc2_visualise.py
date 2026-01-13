@@ -57,7 +57,8 @@ if __name__ == "__main__":
             for step in range(0, args.num_steps):
                 # ALGO LOGIC: action logic
                 with torch.no_grad():
-                    action, _, _, _ = agent.get_action_and_value(next_obs[:,:,:-1])
+                    # use_mode=True, always select the highest probability action instead of sampling (for training)
+                    action, _, _, _ = agent.get_action_and_value(next_obs[:,:,:-1], use_mode=True)
                     action = action.permute((1, 2, 0))  # Reshape action to (num_envs, aircraft_count, action_dim)
 
                     next_obs, reward, termination, truncation, _ = envs.step(

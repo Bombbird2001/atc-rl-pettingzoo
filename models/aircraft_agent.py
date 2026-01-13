@@ -31,7 +31,7 @@ class MLPAgent(nn.Module):
         x = x.clone()
         return self.critic(self.network(x))
 
-    def get_action_and_value(self, x, action=None):
+    def get_action_and_value(self, x, action=None, use_mode: bool = False):
         # Input shape: (..., feature_size)
         # Modified to support MultiDiscrete
         x = x.clone()
@@ -42,7 +42,10 @@ class MLPAgent(nn.Module):
         alt_probs = Categorical(logits=alt_logits)
         spd_probs = Categorical(logits=spd_logits)
         if action is None:
-            action = torch.stack((hdg_probs.sample(), alt_probs.sample(), spd_probs.sample()))
+            if use_mode:
+                action = torch.stack((hdg_probs.mode, alt_probs.mode, spd_probs.mode))
+            else:
+                action = torch.stack((hdg_probs.sample(), alt_probs.sample(), spd_probs.sample()))
         log_prob = hdg_probs.log_prob(action[0]) + alt_probs.log_prob(action[1]) + spd_probs.log_prob(action[2])
         entropy = hdg_probs.entropy() + alt_probs.entropy() + spd_probs.entropy()
         return action, log_prob, entropy, self.critic(hidden)
