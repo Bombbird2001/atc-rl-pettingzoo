@@ -80,12 +80,15 @@ if __name__ == "__main__":
                         break
 
             if exiting:
-                print("Ctrl-C pressed, exiting")
+                print("Ctrl-C pressed")
                 break
 
             print("Episode reward:", reward_sum)
     except KeyboardInterrupt:
-        print("Ctrl-C pressed, exiting")
+        print("Ctrl-C pressed")
     except:
         print(traceback.format_exc())
-        print("Error encountered, exiting")
+        print("Error encountered")
+    finally:
+        print("Exiting and cleaning up")
+        envs.close()
