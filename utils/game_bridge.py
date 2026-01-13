@@ -181,7 +181,12 @@ class UnixGameBridge(GameBridge):
     def close(self):
         self.mm.close()
         self.shm.unlink()
+
+        self.reset_sim.close()
         self.reset_sim.unlink()
+        self.action_ready.close()
         self.action_ready.unlink()
+        self.action_done.close()
         self.action_done.unlink()
+        self.reset_after_step.close()
         self.reset_after_step.unlink()
