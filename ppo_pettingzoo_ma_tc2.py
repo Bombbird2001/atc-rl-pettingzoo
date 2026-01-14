@@ -52,6 +52,8 @@ def parse_args():
     #                     help="whether to capture videos of the agent performances (check out `videos` folder)")
     parser.add_argument("--auto-init-sim", action=argparse.BooleanOptionalAction, default=True,
                         help="if toggled, will automatically initialize the simulators for the environment")
+    parser.add_argument("--model-path", type=str, default=None,
+                        help="the path of the model to load (continue training from)")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, default=12000,  # CleanRL default: 2000000
@@ -129,7 +131,7 @@ if __name__ == "__main__":
     envs = SequentialVecEnv.make_vec_env(
         args.num_envs, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=args.auto_init_sim, reset_print_period=50, max_steps=args.num_steps
+        init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps
     )
 
     try:
@@ -140,6 +142,8 @@ if __name__ == "__main__":
         ), "only multi-discrete action space is supported"
 
         agent = MLPAgent(envs).to(device)
+        if args.model_path is not None:
+            agent.load_state_dict(torch.load(args.model_path))
         optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
         global_step = 0
@@ -151,6 +155,7 @@ if __name__ == "__main__":
         reward_history_length = 30
         reward_history = deque()
         reward_history_sum = 0
+        reward_history_squared_sum = 0
 
         with tqdm(total=args.total_timesteps, unit="steps") as pbar:
             while True:
@@ -371,10 +376,16 @@ if __name__ == "__main__":
                     # SMA of reward
                     reward_history.append(avg_agent_reward.item())
                     reward_history_sum += avg_agent_reward.item()
+                    reward_history_squared_sum += avg_agent_reward.item() ** 2
                     if len(reward_history) > reward_history_length:
-                        reward_history_sum -= reward_history.popleft()
+                        to_remove = reward_history.popleft()
+                        reward_history_sum -= to_remove
+                        reward_history_squared_sum -= to_remove ** 2
                     writer.add_scalar(
                         "episode/reward_sma", reward_history_sum / len(reward_history), global_step
+                    )
+                    writer.add_scalar(
+                        "episode/reward_variance", reward_history_squared_sum / len(reward_history) - (reward_history_sum / len(reward_history)) ** 2, global_step
                     )
 
                     # print(update, "of", num_updates)
