@@ -2,14 +2,15 @@ import torch
 
 
 class RolloutBuffer:
-    def __init__(self, max_size):
+    def __init__(self, max_size, device: torch.device):
         self.max_size = max_size
-        self.obs = torch.Tensor()
-        self.logprobs = torch.Tensor()
-        self.actions = torch.Tensor()
-        self.advantages = torch.Tensor()
-        self.returns = torch.Tensor()
-        self.values = torch.Tensor()
+        self.device = device
+        self.obs = torch.Tensor().to(device)
+        self.logprobs = torch.Tensor().to(device)
+        self.actions = torch.Tensor().to(device)
+        self.advantages = torch.Tensor().to(device)
+        self.returns = torch.Tensor().to(device)
+        self.values = torch.Tensor().to(device)
 
     @property
     def size(self):
@@ -20,12 +21,12 @@ class RolloutBuffer:
         return self.size == self.max_size
 
     def reset(self):
-        self.obs = torch.Tensor()
-        self.logprobs = torch.Tensor()
-        self.actions = torch.Tensor()
-        self.advantages = torch.Tensor()
-        self.returns = torch.Tensor()
-        self.values = torch.Tensor()
+        self.obs = torch.Tensor().to(self.device)
+        self.logprobs = torch.Tensor().to(self.device)
+        self.actions = torch.Tensor().to(self.device)
+        self.advantages = torch.Tensor().to(self.device)
+        self.returns = torch.Tensor().to(self.device)
+        self.values = torch.Tensor().to(self.device)
 
     def add_data(self, obs, logprobs, actions, advantages, returns, values):
         # Adds data to the buffer; discards extra data that would have exceeded max_size

@@ -28,7 +28,7 @@ from models.aircraft_agent import MLPAgent
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from utils.buffers import RolloutBuffer
-from utils.vec_envs import SequentialVecEnv
+from utils.vec_envs import make_vec_env, ParallelThreadVecEnv
 
 
 def parse_args():
@@ -128,7 +128,8 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    envs = SequentialVecEnv.make_vec_env(
+    envs = make_vec_env(
+        ParallelThreadVecEnv,
         args.num_envs, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
         init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps
@@ -151,7 +152,7 @@ if __name__ == "__main__":
         update = 0
         num_updates = int(ceil(args.total_timesteps / args.batch_size))
 
-        rollout_buffer = RolloutBuffer(args.batch_size)
+        rollout_buffer = RolloutBuffer(args.batch_size, device)
         reward_history_length = 30
         reward_history = deque()
         reward_history_sum = 0
@@ -200,6 +201,8 @@ if __name__ == "__main__":
                         # Concat the aircraft mask, ignores actions generated for non-existent aircraft entries
                         torch.cat((action, next_obs[:,:,-1].to(torch.int32).unsqueeze(-1)), dim=-1).cpu().numpy()
                     )
+                    reward = reward.astype(np.float32)
+
                     rewards[step] = torch.tensor(reward).to(device)
                     next_obs, next_termination, next_truncation = (
                         torch.Tensor(next_obs).to(device),
