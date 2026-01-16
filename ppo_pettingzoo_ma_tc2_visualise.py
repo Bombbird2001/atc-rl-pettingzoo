@@ -5,8 +5,7 @@ import torch
 import traceback
 from envs.tc2_pettingzoo_env import make_env
 from models.aircraft_agent import MLPAgent
-from utils.vec_envs import SequentialVecEnv
-
+from utils.vec_envs import make_vec_env, SequentialVecEnv
 
 exiting = False
 
@@ -36,7 +35,8 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
-    envs = SequentialVecEnv.make_vec_env(
+    envs = make_vec_env(
+        SequentialVecEnv,
         1, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
         init_sim=False, reset_print_period=50, max_steps=args.num_steps
