@@ -117,7 +117,6 @@ class TransformerProcessor(DataProcessor):
 
 class GNNProcessor(DataProcessor):
     def preprocess_data(self, obs: torch.Tensor) -> Data:
-        obs = obs.reshape((AIRCRAFT_COUNT, -1))
         obs = obs[obs[:,-1] == 1,:-1]
         # print(obs.shape)
 

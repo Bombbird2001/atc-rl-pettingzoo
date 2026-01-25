@@ -21,12 +21,14 @@ import torch.optim as optim
 import traceback
 from collections import deque
 from common.constants import AIRCRAFT_COUNT
+from common.data_preprocessing import GNNProcessor
 from datetime import datetime
 from envs.tc2_pettingzoo_env import make_env
 from math import ceil
-from models.aircraft_agent import MLPAgent
+from models.aircraft_agent import MLPAgent, GNNAgent
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+from torch_geometric.loader import DataLoader
 from utils.buffers import RolloutBuffer
 from utils.vec_envs import make_vec_env, ParallelThreadVecEnv
 
@@ -143,7 +145,9 @@ if __name__ == "__main__":
             envs.single_action_space, gym.spaces.MultiDiscrete
         ), "only multi-discrete action space is supported"
 
-        agent = MLPAgent(envs).to(device)
+        agent = GNNAgent(envs, 18, 2).to(device)
+        is_gnn_agent = type(agent) is GNNAgent
+        gnn_preprocessor = GNNProcessor()
         if args.model_path is not None:
             agent.load_state_dict(torch.load(args.model_path))
         optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
@@ -163,14 +167,24 @@ if __name__ == "__main__":
             while True:
                 # Start the game
                 next_obs, info = envs.reset(seed=args.seed)
-                next_obs = torch.Tensor(next_obs).to(device)
+                if is_gnn_agent:
+                    input_graphs = []
+                    for i in range(next_obs.shape[0]):
+                        input_graphs.append(gnn_preprocessor.preprocess_data(torch.Tensor(next_obs[i])))
+                    next_obs = next(iter(DataLoader(input_graphs, batch_size=2))).to(device)
+                    print(next_obs)
+                else:
+                    next_obs = torch.Tensor(next_obs).to(device)
                 next_termination = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
                 next_truncation = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
 
                 # ALGO Logic: Storage setup
-                obs = torch.zeros(
-                    (args.num_steps, args.num_envs, AIRCRAFT_COUNT) + envs.single_observation_space.shape
-                ).to(device)
+                if is_gnn_agent:
+                    obs = [None for _ in range(args.num_steps)]
+                else:
+                    obs = torch.zeros(
+                        (args.num_steps, args.num_envs, AIRCRAFT_COUNT) + envs.single_observation_space.shape
+                    ).to(device)
                 actions = torch.zeros(
                     (args.num_steps, args.num_envs, AIRCRAFT_COUNT) + envs.single_action_space.shape
                 ).to(device)
@@ -191,7 +205,11 @@ if __name__ == "__main__":
 
                     # ALGO LOGIC: action logic
                     with torch.no_grad():
-                        action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-1])
+                        if is_gnn_agent:
+                            action, logprob, _, value = agent.get_action_and_value(next_obs)
+                            print(value)
+                        else:
+                            action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-1])
                         values[step] = value.squeeze(dim=-1)
                     action = action.permute((1, 2, 0))  # Reshape action to (num_envs, aircraft_count, action_dim)
                     actions[step] = action
