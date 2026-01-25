@@ -39,7 +39,8 @@ if __name__ == "__main__":
         SequentialVecEnv,
         1, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=False, reset_print_period=50, max_steps=args.num_steps
+        init_sim=False, reset_print_period=50, max_steps=args.num_steps,
+        is_eval=True,
     )
 
     agent = MLPAgent(envs).to(device)

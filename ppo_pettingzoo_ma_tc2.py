@@ -132,7 +132,8 @@ if __name__ == "__main__":
         ParallelThreadVecEnv,
         args.num_envs, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps
+        init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
+        is_eval=False,
     )
 
     try:

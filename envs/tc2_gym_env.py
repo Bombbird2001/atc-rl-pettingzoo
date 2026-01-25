@@ -69,7 +69,7 @@ class TC2GymEnv(gym.Env):
 
         if init_sim:
             print(f"[{self.instance_name}] Starting simulator")
-            self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix}", shell=True)
+            self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix} {1 if is_eval else 0}", shell=True)
 
     def _get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
         tmp_state = np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,1:]
