@@ -28,6 +28,7 @@ from math import ceil
 from models.aircraft_agent import MLPAgent, GNNAgent
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from utils.buffers import RolloutBuffer
 from utils.vec_envs import make_vec_env, ParallelThreadVecEnv
@@ -98,6 +99,12 @@ def parse_args():
     return args
 
 
+def _tensor_to_graph(obs: torch.Tensor) -> Data:
+    input_graphs = []
+    for i in range(obs.shape[0]):
+        input_graphs.append(gnn_preprocessor.preprocess_data(torch.Tensor(next_obs[i])))
+    return next(iter(DataLoader(input_graphs, batch_size=2))).to(device)
+
 if __name__ == "__main__":
     args = parse_args()
     print(args)
@@ -167,12 +174,9 @@ if __name__ == "__main__":
             while True:
                 # Start the game
                 next_obs, info = envs.reset(seed=args.seed)
+                ac_mask = torch.IntTensor(next_obs[:,:,-1])
                 if is_gnn_agent:
-                    input_graphs = []
-                    for i in range(next_obs.shape[0]):
-                        input_graphs.append(gnn_preprocessor.preprocess_data(torch.Tensor(next_obs[i])))
-                    next_obs = next(iter(DataLoader(input_graphs, batch_size=2))).to(device)
-                    print(next_obs)
+                    next_obs = _tensor_to_graph(next_obs)
                 else:
                     next_obs = torch.Tensor(next_obs).to(device)
                 next_termination = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
@@ -206,31 +210,31 @@ if __name__ == "__main__":
                     # ALGO LOGIC: action logic
                     with torch.no_grad():
                         if is_gnn_agent:
-                            action, logprob, _, value = agent.get_action_and_value(next_obs)
-                            print(value)
+                            action, logprob, _, value = agent.get_action_and_value(next_obs, ac_mask)
                         else:
                             action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-1])
                         values[step] = value.squeeze(dim=-1)
-                    action = action.permute((1, 2, 0))  # Reshape action to (num_envs, aircraft_count, action_dim)
                     actions[step] = action
                     logprobs[step] = logprob
 
                     # TRY NOT TO MODIFY: execute the game and log data.
                     next_obs, reward, termination, truncation, info = envs.step(
                         # Concat the aircraft mask, ignores actions generated for non-existent aircraft entries
-                        torch.cat((action, next_obs[:,:,-1].to(torch.int32).unsqueeze(-1)), dim=-1).cpu().numpy()
+                        torch.cat((action, ac_mask.unsqueeze(-1)), dim=-1).cpu().numpy()
                     )
+                    ac_mask = torch.IntTensor(next_obs[:,:,-1])
                     reward = reward.astype(np.float32)
 
                     rewards[step] = torch.tensor(reward).to(device)
-                    next_obs, next_termination, next_truncation = (
-                        torch.Tensor(next_obs).to(device),
-                        torch.Tensor(termination).to(device),
-                        torch.Tensor(truncation).to(device),
-                    )
+                    if is_gnn_agent:
+                        next_obs = _tensor_to_graph(next_obs)
+                    else:
+                        next_obs = torch.Tensor(next_obs).to(device)
+                    next_termination = torch.Tensor(termination).to(device)
+                    next_truncation = torch.Tensor(truncation).to(device)
 
                     # Early termination if all agents terminated before truncation occurs
-                    next_active_agents = next_obs[:,:,-1] - next_termination
+                    next_active_agents = ac_mask - next_termination
                     # Only terminate envs that have no more agents and termination occurred this step
                     # (i.e. envs that terminated before do not re-terminate)
                     terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
@@ -251,7 +255,7 @@ if __name__ == "__main__":
                     #    Doesn't really matter how we handle this, since this and the previous steps should all be masked out during training
 
                     # This is only used for truncations, NOT terminations; use the final next_obs with mask removed
-                    truncation_next_value = agent.get_value(next_obs[:,:,:-1]).squeeze(dim=-1)
+                    truncation_next_value = agent.get_value(next_obs, ac_mask).squeeze(dim=-1)
                     advantages = torch.zeros_like(rewards).to(device)
                     lastgaelam = 0
                     # next_done = torch.maximum(next_termination, next_truncation)

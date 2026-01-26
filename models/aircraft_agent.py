@@ -57,10 +57,7 @@ class MLPAgent(Module):
         log_prob = hdg_probs.log_prob(action[0]) + alt_probs.log_prob(action[1]) + spd_probs.log_prob(action[2])
         entropy = hdg_probs.entropy() + alt_probs.entropy() + spd_probs.entropy()
         value_hidden = self.value_latent(x)
-        print(value_hidden.shape)
-        # TODO Global average pooling within each graph
-        value_hidden = value_hidden.mean(dim=0)
-        return action, log_prob, entropy, self.critic(value_hidden)
+        return action.permute((1, 2, 0)), log_prob, entropy, self.critic(value_hidden)
 
 
 class GNNLatentNet(Module):
@@ -112,22 +109,34 @@ class GNNAgent(Module):
         self.value_latent = GNNLatentNet(node_feature_count, edge_feature_count)
         self.critic = layer_init(Linear(64, 1), std=1)
 
-    def _groupwise_mean(self, x, classes) -> torch.Tensor:
-        classes = classes.view(classes.size(0), 1).expand(-1, x.size(1))
+    def _pad_actions(self, actions: torch.Tensor, batch: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        padded_actions = []
+        for env_idx in range(batch.max().item() + 1):
+            env_mask = mask[env_idx]
+            actions_no_pad = actions[:,batch == env_idx]
+            padded_output = torch.zeros((env_mask.shape[0], self.action_space_dims.shape[0]), dtype=torch.long)
+            padded_output[env_mask.bool()] = actions_no_pad.transpose(0, 1)
+            padded_actions.append(padded_output)
+        # Returned shape: (num_envs, num_aircraft, 3)
+        return torch.stack(padded_actions, dim=0)
 
-        unique_labels, labels_count = classes.unique(dim=0, return_counts=True)
+    def _pad_scalar(self, values: torch.Tensor, batch: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        padded_values = []
+        for env_idx in range(batch.max().item() + 1):
+            env_mask = mask[env_idx]
+            values_no_pad = values[batch == env_idx]
+            padded_output = torch.zeros(env_mask.shape[0])
+            padded_output[env_mask.bool()] = values_no_pad
+            padded_values.append(padded_output)
+        return torch.stack(padded_values, dim=0)
 
-        res = torch.zeros_like(unique_labels, dtype=torch.float).scatter_add_(0, classes, x)
-        return res / labels_count.float().unsqueeze(1)
-
-    def get_value(self, x: Data):
+    def get_value(self, x: Data, mask: torch.Tensor) -> torch.Tensor:
         x = x.clone()
         value_hidden = self.value_latent(x.x, x.edge_index, x.edge_attr)
-        values = self.critic(value_hidden)
-        # TODO Pad values for non-existent aircraft
-        return values
+        values = self.critic(value_hidden).squeeze(-1)
+        return self._pad_scalar(values, x.batch, mask)
 
-    def get_action_and_value(self, x: Data, action=None, use_mode: bool = False):
+    def get_action_and_value(self, x: Data, mask: torch.Tensor, action=None, use_mode: bool = False):
         # Input shape: (..., feature_size)
         # Modified to support MultiDiscrete
         x = x.clone()
@@ -145,6 +154,9 @@ class GNNAgent(Module):
         log_prob = hdg_probs.log_prob(action[0]) + alt_probs.log_prob(action[1]) + spd_probs.log_prob(action[2])
         entropy = hdg_probs.entropy() + alt_probs.entropy() + spd_probs.entropy()
         value_hidden = self.value_latent(x.x, x.edge_index, x.edge_attr)
-        values = self.critic(value_hidden)
-        # TODO Pad values for non-existent aircraft
-        return action, log_prob, entropy, values
+        values = self.critic(value_hidden).squeeze(-1)
+        return (
+            self._pad_actions(action, x.batch, mask),
+            self._pad_scalar(log_prob, x.batch, mask),
+            entropy, self._pad_scalar(values, x.batch, mask)
+        )
