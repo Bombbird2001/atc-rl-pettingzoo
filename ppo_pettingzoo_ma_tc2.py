@@ -30,7 +30,8 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from utils.buffers import RolloutBuffer
+from typing import List
+from utils.buffers import RolloutBuffer, GraphRolloutBuffer
 from utils.vec_envs import make_vec_env, ParallelThreadVecEnv
 
 
@@ -51,8 +52,6 @@ def parse_args():
                         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
                         help="the entity (team) of wandb's project")
-    # parser.add_argument("--capture-video", action=argparse.BooleanOptionalAction, default=False,
-    #                     help="whether to capture videos of the agent performances (check out `videos` folder)")
     parser.add_argument("--auto-init-sim", action=argparse.BooleanOptionalAction, default=True,
                         help="if toggled, will automatically initialize the simulators for the environment")
     parser.add_argument("--model-path", type=str, default=None,
@@ -99,11 +98,69 @@ def parse_args():
     return args
 
 
-def _tensor_to_graph(obs: torch.Tensor) -> Data:
+def _tensor_to_graph(obs: torch.Tensor, num_envs: int) -> Data:
     input_graphs = []
     for i in range(obs.shape[0]):
-        input_graphs.append(gnn_preprocessor.preprocess_data(torch.Tensor(next_obs[i])))
-    return next(iter(DataLoader(input_graphs, batch_size=2))).to(device)
+        input_graphs.append(gnn_preprocessor.preprocess_data(torch.Tensor(obs[i])))
+    return next(iter(DataLoader(input_graphs, batch_size=num_envs))).to(device)
+
+
+class VanillaBatchIterator:
+    def __init__(self,
+                 all_obs: torch.Tensor, all_actions: torch.Tensor, all_returns: torch.Tensor,
+                 all_log_probs: torch.Tensor, all_advantages: torch.Tensor, all_values: torch.Tensor,
+                 batch_size: int,
+        ):
+        self.all_obs = all_obs
+        self.all_actions = all_actions
+        self.all_returns = all_returns
+        self.all_log_probs = all_log_probs
+        self.all_advantages = all_advantages
+        self.all_values = all_values
+        self.iteration_index = np.arange(all_obs.shape[0])
+        np.random.shuffle(self.iteration_index)
+        self.batch_size = batch_size
+
+    def __iter__(self):
+        for start_idx in range(0, self.all_obs.shape[0], self.batch_size):
+            end_idx = start_idx + self.batch_size
+            batch_idx = self.iteration_index[start_idx:end_idx]
+            yield (self.all_obs[batch_idx], self.all_actions[batch_idx], self.all_returns[batch_idx],
+                   self.all_log_probs[batch_idx], self.all_advantages[batch_idx], self.all_values[batch_idx])
+
+
+class GraphBatchIterator:
+    def __init__(self,
+                 all_obs: List[Data], all_actions: torch.Tensor, all_returns: torch.Tensor,
+                 all_log_probs: torch.Tensor, all_advantages: torch.Tensor, all_values: torch.Tensor,
+                 batch_size: int,
+    ):
+        graph_idx = np.arange(len(all_obs))
+        b_batch = torch.repeat_interleave(torch.IntTensor([x.x.shape[0] for x in all_obs]))
+        np.random.shuffle(graph_idx)
+
+        self.dataloader = DataLoader([all_obs[idx] for idx in graph_idx], batch_size=batch_size)
+        self.all_actions = all_actions
+        self.all_returns = all_returns
+        self.all_log_probs = all_log_probs
+        self.all_advantages = all_advantages
+        self.all_values = all_values
+
+        tmp_idx = np.arange(all_advantages.shape[0])
+        rearranged_order = []
+        for idx in graph_idx:
+            rearranged_order.append(tmp_idx[b_batch == idx])
+        self.iteration_index = np.concatenate(rearranged_order)
+
+    def __iter__(self):
+        start_idx = 0
+        for batched_graph in self.dataloader:
+            end_idx = start_idx + batched_graph.x.shape[0]
+            batch_idx = self.iteration_index[start_idx:end_idx]
+            yield (batched_graph, self.all_actions[batch_idx], self.all_returns[batch_idx],
+                   self.all_log_probs[batch_idx], self.all_advantages[batch_idx], self.all_values[batch_idx])
+            start_idx = end_idx
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -146,8 +203,6 @@ if __name__ == "__main__":
     )
 
     try:
-        # if args.capture_video:
-        #     envs = gym.wrappers.RecordVideo(envs, f"videos/{run_name}")
         assert isinstance(
             envs.single_action_space, gym.spaces.MultiDiscrete
         ), "only multi-discrete action space is supported"
@@ -164,7 +219,10 @@ if __name__ == "__main__":
         update = 0
         num_updates = int(ceil(args.total_timesteps / args.batch_size))
 
-        rollout_buffer = RolloutBuffer(args.batch_size, device)
+        if is_gnn_agent:
+            rollout_buffer = GraphRolloutBuffer(args.batch_size, device)
+        else:
+            rollout_buffer = RolloutBuffer(args.batch_size, device)
         reward_history_length = 30
         reward_history = deque()
         reward_history_sum = 0
@@ -176,7 +234,7 @@ if __name__ == "__main__":
                 next_obs, info = envs.reset(seed=args.seed)
                 ac_mask = torch.IntTensor(next_obs[:,:,-1])
                 if is_gnn_agent:
-                    next_obs = _tensor_to_graph(next_obs)
+                    next_obs = _tensor_to_graph(next_obs, args.num_envs)
                 else:
                     next_obs = torch.Tensor(next_obs).to(device)
                 next_termination = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
@@ -185,6 +243,7 @@ if __name__ == "__main__":
                 # ALGO Logic: Storage setup
                 if is_gnn_agent:
                     obs = [None for _ in range(args.num_steps)]
+                    masks = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT)).to(device)
                 else:
                     obs = torch.zeros(
                         (args.num_steps, args.num_envs, AIRCRAFT_COUNT) + envs.single_observation_space.shape
@@ -204,6 +263,8 @@ if __name__ == "__main__":
                     # But rewards/terminations/truncations[step] stores the reward at step+1 after taking an action during step,
                     # and whether the subsequent obs is the last for that agent
                     obs[step] = next_obs
+                    if is_gnn_agent:
+                        masks[step] = ac_mask
                     terminations[step] = next_termination
                     truncations[step] = next_truncation
 
@@ -227,7 +288,7 @@ if __name__ == "__main__":
 
                     rewards[step] = torch.tensor(reward).to(device)
                     if is_gnn_agent:
-                        next_obs = _tensor_to_graph(next_obs)
+                        next_obs = _tensor_to_graph(next_obs, args.num_envs)
                     else:
                         next_obs = torch.Tensor(next_obs).to(device)
                     next_termination = torch.Tensor(termination).to(device)
@@ -279,9 +340,17 @@ if __name__ == "__main__":
                     returns = advantages + values
 
                 # Flatten the batch and add to rollout buffer with fixed maximum size
-                b_obs = obs.reshape((-1, obs.shape[3]))
-                b_masks = b_obs[:,-1].to(torch.bool)
-                b_obs = b_obs[b_masks,:-1]
+                if is_gnn_agent:
+                    # Flat map batched graphs into list of individual graphs
+                    b_obs = [x for batched_obs in obs for x in batched_obs.to_data_list()]
+                    total_ac_length = sum(map(lambda x: x.x.shape[0], b_obs))
+                    # print(total_ac_length)
+                    b_masks = masks.reshape(-1).bool()
+                    # print(b_masks.sum())
+                else:
+                    b_obs = obs.reshape((-1, obs.shape[3]))
+                    b_masks = b_obs[:,-1].bool()
+                    b_obs = b_obs[b_masks,:-1]
                 b_logprobs = logprobs.reshape(-1)[b_masks]
                 b_actions = actions.reshape((-1,) + envs.single_action_space.shape)[b_masks]
                 b_advantages = advantages.reshape(-1)[b_masks]
@@ -301,18 +370,29 @@ if __name__ == "__main__":
                         optimizer.param_groups[0]["lr"] = lrnow
 
                     # Optimizing the policy and value network
-                    b_inds = np.arange(args.batch_size)
                     clipfracs = []
                     for epoch in range(args.update_epochs):
-                        np.random.shuffle(b_inds)
-                        for start in range(0, args.batch_size, args.minibatch_size):
-                            end = start + args.minibatch_size
-                            mb_inds = b_inds[start:end]
-
-                            _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                                buffer_obs[mb_inds], buffer_actions.long()[mb_inds].transpose(0, 1)
+                        if is_gnn_agent:
+                            batch_iterator = GraphBatchIterator(
+                                buffer_obs, buffer_actions, buffer_returns, buffer_logprobs, buffer_advantages, buffer_values, args.minibatch_size
                             )
-                            logratio = newlogprob - buffer_logprobs[mb_inds]
+                        else:
+                            batch_iterator = VanillaBatchIterator(
+                                buffer_obs, buffer_actions, buffer_returns, buffer_logprobs, buffer_advantages, buffer_values, args.minibatch_size
+                            )
+
+                        for batch_obs, batch_actions, batch_returns, batch_logprobs, batch_advantages, batch_values in batch_iterator:
+                            if is_gnn_agent:
+                                # Combine the graphs to treat them like a single environment
+                                batch_obs.batch = torch.zeros_like(batch_obs.batch)
+                                _, newlogprob, entropy, newvalue = agent.get_action_and_value(
+                                    batch_obs, torch.ones((1, batch_obs.batch.shape[0])), batch_actions.long().transpose(0, 1)
+                                )
+                            else:
+                                _, newlogprob, entropy, newvalue = agent.get_action_and_value(
+                                    batch_obs, batch_actions.long().transpose(0, 1)
+                                )
+                            logratio = newlogprob - batch_logprobs
                             ratio = logratio.exp()
 
                             with torch.no_grad():
@@ -323,7 +403,7 @@ if __name__ == "__main__":
                                     ((ratio - 1.0).abs() > args.clip_coef).float().mean().item()
                                 ]
 
-                            mb_advantages = buffer_advantages[mb_inds]
+                            mb_advantages = batch_advantages
                             if args.norm_adv:
                                 mb_advantages = (mb_advantages - mb_advantages.mean()) / (
                                         mb_advantages.std() + 1e-8
@@ -339,17 +419,17 @@ if __name__ == "__main__":
                             # Value loss
                             newvalue = newvalue.view(-1)
                             if args.clip_vloss:
-                                v_loss_unclipped = (newvalue - buffer_returns[mb_inds]) ** 2
-                                v_clipped = buffer_values[mb_inds] + torch.clamp(
-                                    newvalue - buffer_values[mb_inds],
+                                v_loss_unclipped = (newvalue - batch_returns) ** 2
+                                v_clipped = batch_values + torch.clamp(
+                                    newvalue - batch_values,
                                     -args.clip_coef,
                                     args.clip_coef,
                                     )
-                                v_loss_clipped = (v_clipped - buffer_returns[mb_inds]) ** 2
+                                v_loss_clipped = (v_clipped - batch_returns) ** 2
                                 v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                                 v_loss = 0.5 * v_loss_max.mean()
                             else:
-                                v_loss = 0.5 * ((newvalue - buffer_returns[mb_inds]) ** 2).mean()
+                                v_loss = 0.5 * ((newvalue - batch_returns) ** 2).mean()
 
                             entropy_loss = entropy.mean()
                             loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
@@ -390,7 +470,10 @@ if __name__ == "__main__":
                     )
 
                     # Use the rewards obtained from this iteration before training to compute average reward
-                    ac_mask = obs.reshape(args.num_steps, -1, envs.single_observation_space.shape[0])[:, :,-1].squeeze(dim=-1).to(torch.bool).any(dim=0)
+                    if is_gnn_agent:
+                        ac_mask = masks.bool().reshape(args.num_steps, -1).any(dim=0)
+                    else:
+                        ac_mask = obs.reshape(args.num_steps, -1, envs.single_observation_space.shape[0])[:, :,-1].squeeze(dim=-1).bool().any(dim=0)
                     rewards = rewards.reshape(args.num_steps, -1)[:,ac_mask]
                     avg_agent_reward = rewards.sum(dim=0).mean()
                     if update % 10 == 0:

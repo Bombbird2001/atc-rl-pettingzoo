@@ -122,7 +122,8 @@ class GNNProcessor(DataProcessor):
 
         node_count = obs.shape[0]
 
-        edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
+        edge_index = torch.asarray([(i, i) for i in range(node_count)])
+        # edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
 
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
         # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)] + mask

@@ -81,17 +81,17 @@ class GNNLatentNet(Module):
 
         self.gine1 = GINEConv(nn1, edge_dim=edge_feature_count, train_eps=True)
         self.bn1 = BatchNorm1d(32)
-        self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
-        self.bn2 = BatchNorm1d(64)
-        self.linear = layer_init(Linear(64, 64))
+        # self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
+        # self.bn2 = BatchNorm1d(64)
+        self.linear = layer_init(Linear(32, 64))
 
     def forward(self, x, edge_index, edge_attr):
         h = self.gine1(x, edge_index, edge_attr)
         h = self.bn1(h)
         h = F.gelu(h)
-        h = self.gine2(h, edge_index, edge_attr)
-        h = self.bn2(h)
-        h = F.gelu(h)
+        # h = self.gine2(h, edge_index, edge_attr)
+        # h = self.bn2(h)
+        # h = F.gelu(h)
         h = self.linear(h)
 
         return h
