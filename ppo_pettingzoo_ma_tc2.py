@@ -56,6 +56,8 @@ def parse_args():
                         help="if toggled, will automatically initialize the simulators for the environment")
     parser.add_argument("--model-path", type=str, default=None,
                         help="the path of the model to load (continue training from)")
+    parser.add_argument("--agent-type", type=str, default="gnn", choices=("mlp", "gnn"),
+                        help="agent type: mlp or gnn (must match the saved model)")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, default=12000,  # CleanRL default: 2000000
@@ -98,11 +100,11 @@ def parse_args():
     return args
 
 
-def _tensor_to_graph(obs: torch.Tensor, num_envs: int) -> Data:
+def _tensor_to_graph(obs: torch.Tensor) -> Data:
     input_graphs = []
     for i in range(obs.shape[0]):
         input_graphs.append(gnn_preprocessor.preprocess_data(torch.Tensor(obs[i])))
-    return next(iter(DataLoader(input_graphs, batch_size=num_envs))).to(device)
+    return next(iter(DataLoader(input_graphs, obs.shape[0]))).to(device)
 
 
 class VanillaBatchIterator:
@@ -207,9 +209,12 @@ if __name__ == "__main__":
             envs.single_action_space, gym.spaces.MultiDiscrete
         ), "only multi-discrete action space is supported"
 
-        agent = GNNAgent(envs, 18, 2).to(device)
-        is_gnn_agent = type(agent) is GNNAgent
-        gnn_preprocessor = GNNProcessor()
+        is_gnn_agent = args.agent_type == "gnn"
+        if is_gnn_agent:
+            agent = GNNAgent(envs, 18, 2).to(device)
+            gnn_preprocessor = GNNProcessor()
+        else:
+            agent = MLPAgent(envs).to(device)
         if args.model_path is not None:
             agent.load_state_dict(torch.load(args.model_path))
         optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
@@ -234,7 +239,7 @@ if __name__ == "__main__":
                 next_obs, info = envs.reset(seed=args.seed)
                 ac_mask = torch.IntTensor(next_obs[:,:,-1])
                 if is_gnn_agent:
-                    next_obs = _tensor_to_graph(next_obs, args.num_envs)
+                    next_obs = _tensor_to_graph(next_obs)
                 else:
                     next_obs = torch.Tensor(next_obs).to(device)
                 next_termination = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
@@ -274,6 +279,7 @@ if __name__ == "__main__":
                             action, logprob, _, value = agent.get_action_and_value(next_obs, ac_mask)
                         else:
                             action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-1])
+                            action = action.permute((1, 2, 0))
                         values[step] = value.squeeze(dim=-1)
                     actions[step] = action
                     logprobs[step] = logprob
@@ -288,7 +294,7 @@ if __name__ == "__main__":
 
                     rewards[step] = torch.tensor(reward).to(device)
                     if is_gnn_agent:
-                        next_obs = _tensor_to_graph(next_obs, args.num_envs)
+                        next_obs = _tensor_to_graph(next_obs)
                     else:
                         next_obs = torch.Tensor(next_obs).to(device)
                     next_termination = torch.Tensor(termination).to(device)
@@ -299,8 +305,15 @@ if __name__ == "__main__":
                     # Only terminate envs that have no more agents and termination occurred this step
                     # (i.e. envs that terminated before do not re-terminate)
                     terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
+                    early_stop_loop = False
                     for env_idx in torch.where(terminating_envs)[0]:
                         envs.early_reset(env_idx.item(), args.seed)
+                        if next_active_agents.sum().item() == 0:
+                            # All agents terminated, exit the step loop early
+                            early_stop_loop = True
+
+                    if early_stop_loop:
+                        break
 
                 with torch.no_grad():
                     # Here, our inputs are such that every agent will only have a single continuous active period between spawn and despawn/truncation
@@ -316,7 +329,10 @@ if __name__ == "__main__":
                     #    Doesn't really matter how we handle this, since this and the previous steps should all be masked out during training
 
                     # This is only used for truncations, NOT terminations; use the final next_obs with mask removed
-                    truncation_next_value = agent.get_value(next_obs, ac_mask).squeeze(dim=-1)
+                    if is_gnn_agent:
+                        truncation_next_value = agent.get_value(next_obs, ac_mask).squeeze(dim=-1)
+                    else:
+                        truncation_next_value = agent.get_value(next_obs[:,:,:-1]).squeeze(dim=-1)
                     advantages = torch.zeros_like(rewards).to(device)
                     lastgaelam = 0
                     # next_done = torch.maximum(next_termination, next_truncation)
@@ -341,8 +357,8 @@ if __name__ == "__main__":
 
                 # Flatten the batch and add to rollout buffer with fixed maximum size
                 if is_gnn_agent:
-                    # Flat map batched graphs into list of individual graphs
-                    b_obs = [x for batched_obs in obs for x in batched_obs.to_data_list()]
+                    # Flat map batched graphs into list of individual graphs (exclude None and empty graphs)
+                    b_obs = [x for batched_obs in obs if batched_obs is not None for x in batched_obs.to_data_list() if x.x.shape[0] > 0]
                     total_ac_length = sum(map(lambda x: x.x.shape[0], b_obs))
                     # print(total_ac_length)
                     b_masks = masks.reshape(-1).bool()
@@ -382,6 +398,11 @@ if __name__ == "__main__":
                             )
 
                         for batch_obs, batch_actions, batch_returns, batch_logprobs, batch_advantages, batch_values in batch_iterator:
+                            if batch_advantages.shape[0] < 10:
+                                print("Skipping: Too little data in batch")
+                                print("Shapes:", batch_obs.x.shape, batch_actions.shape, batch_returns.shape, batch_logprobs.shape, batch_advantages.shape, batch_values.shape)
+                                continue
+                            
                             if is_gnn_agent:
                                 # Combine the graphs to treat them like a single environment
                                 batch_obs.batch = torch.zeros_like(batch_obs.batch)
@@ -436,7 +457,21 @@ if __name__ == "__main__":
 
                             optimizer.zero_grad()
                             loss.backward()
-                            nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                            
+                            # Log gradient stats before clipping
+                            total_norm = 0.0
+                            for p in agent.parameters():
+                                if p.grad is not None:
+                                    param_norm = p.grad.data.norm(2)
+                                    total_norm += param_norm.item() ** 2
+                            total_norm = total_norm ** 0.5
+                            
+                            grad_norm = nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                            clipping_ratio = grad_norm / args.max_grad_norm if grad_norm > args.max_grad_norm else 1.0
+                            
+                            # if update % 10 == 1:  # Log every 10 updates
+                                # print(f"Grad norm: {grad_norm:.3f}, Clipping to: {args.max_grad_norm}, Ratio: {clipping_ratio:.3f}")
+                            
                             optimizer.step()
 
                         if args.target_kl is not None:
@@ -463,8 +498,10 @@ if __name__ == "__main__":
                     writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
                     writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
                     writer.add_scalar("losses/explained_variance", explained_var, global_step)
+                    writer.add_scalar("charts/grad_norm", grad_norm, global_step)
+                    writer.add_scalar("charts/clipping_ratio", clipping_ratio, global_step)
                     if update % 10 == 0:
-                        print("SPS:", int(global_step / (time.time() - start_time)))
+                        print(f"SPS: {int(global_step / (time.time() - start_time))}, Entropy: {entropy_loss.item():.3f}")
                     writer.add_scalar(
                         "charts/SPS", int(global_step / (time.time() - start_time)), global_step
                     )
@@ -500,14 +537,15 @@ if __name__ == "__main__":
                     # print(update, "of", num_updates)
                     if update >= num_updates:
                         break
-        model_path = f"runs/{run_name}/agent.pt"
-        print(f"Finished training in {time.time() - start_time:.2f}s")
-        print(f"Saving model to {model_path}")
-        torch.save(agent.state_dict(), model_path)
-    except Exception as e:
+        print(f"Completed training in {time.time() - start_time:.2f}s")
+    except:
         print(traceback.format_exc())
         print("Error encountered during training")
+        print(f"Exited training in {time.time() - start_time:.2f}s")
     finally:
+        model_path = f"runs/{run_name}/agent.pt"
+        print(f"Saving model to {model_path}")
+        torch.save(agent.state_dict(), model_path)
         print("Exiting and cleaning up")
         envs.close()
         writer.close()

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.nn import Sequential, ReLU, GELU, Linear, BatchNorm1d, Module
+from torch.nn import Sequential, ReLU, GELU, Linear, BatchNorm1d, Module, LayerNorm
 from torch.distributions import Categorical
 from torch_geometric.data import Data
 from torch_geometric.nn import GINEConv
@@ -57,7 +57,7 @@ class MLPAgent(Module):
         log_prob = hdg_probs.log_prob(action[0]) + alt_probs.log_prob(action[1]) + spd_probs.log_prob(action[2])
         entropy = hdg_probs.entropy() + alt_probs.entropy() + spd_probs.entropy()
         value_hidden = self.value_latent(x)
-        return action.permute((1, 2, 0)), log_prob, entropy, self.critic(value_hidden)
+        return action, log_prob, entropy, self.critic(value_hidden)
 
 
 class GNNLatentNet(Module):
@@ -68,19 +68,19 @@ class GNNLatentNet(Module):
 
         nn1 = Sequential(
             layer_init(Linear(node_feature_count, 32)),
-            BatchNorm1d(32),
+            LayerNorm(32),
             GELU(),
             layer_init(Linear(32, 32)),
         )
         nn2 = Sequential(
             layer_init(Linear(32, 64)),
-            BatchNorm1d(64),
+            LayerNorm(64),
             GELU(),
             layer_init(Linear(64, 64)),
         )
 
         self.gine1 = GINEConv(nn1, edge_dim=edge_feature_count, train_eps=True)
-        self.bn1 = BatchNorm1d(32)
+        self.bn1 = LayerNorm(32)
         # self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
         # self.bn2 = BatchNorm1d(64)
         self.linear = layer_init(Linear(32, 64))
@@ -111,7 +111,7 @@ class GNNAgent(Module):
 
     def _pad_actions(self, actions: torch.Tensor, batch: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         padded_actions = []
-        for env_idx in range(batch.max().item() + 1):
+        for env_idx in range(mask.shape[0]):
             env_mask = mask[env_idx]
             actions_no_pad = actions[:,batch == env_idx]
             padded_output = torch.zeros((env_mask.shape[0], self.action_space_dims.shape[0]), dtype=torch.long)
@@ -122,7 +122,7 @@ class GNNAgent(Module):
 
     def _pad_scalar(self, values: torch.Tensor, batch: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         padded_values = []
-        for env_idx in range(batch.max().item() + 1):
+        for env_idx in range(mask.shape[0]):
             env_mask = mask[env_idx]
             values_no_pad = values[batch == env_idx]
             padded_output = torch.zeros(env_mask.shape[0])

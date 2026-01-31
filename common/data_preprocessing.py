@@ -122,6 +122,9 @@ class GNNProcessor(DataProcessor):
 
         node_count = obs.shape[0]
 
+        if node_count == 0:
+            return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=torch.empty(2, 0, dtype=torch.int32), edge_attr=torch.empty(0, 2))
+
         edge_index = torch.asarray([(i, i) for i in range(node_count)])
         # edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
 
