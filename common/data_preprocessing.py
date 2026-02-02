@@ -125,8 +125,8 @@ class GNNProcessor(DataProcessor):
         if node_count == 0:
             return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=torch.empty(2, 0, dtype=torch.int32), edge_attr=torch.empty(0, 2))
 
-        edge_index = torch.asarray([(i, i) for i in range(node_count)])
-        # edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
+        # edge_index = torch.asarray([(i, i) for i in range(node_count)])
+        edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
 
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
         # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)] + mask
