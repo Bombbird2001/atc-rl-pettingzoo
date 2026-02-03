@@ -24,7 +24,7 @@ def parse_args():
                         help="if toggled, `torch.backends.cudnn.deterministic=False`")
     parser.add_argument("--cuda", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--num-steps", type=int, default=256,
+    parser.add_argument("--num-steps", type=int, default=512,
                         help="the number of steps to run in each environment per policy rollout")
     parser.add_argument("--model-path", type=str, default=None,
                         help="the path of the model to load")

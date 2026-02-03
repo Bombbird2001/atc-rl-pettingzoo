@@ -399,8 +399,8 @@ if __name__ == "__main__":
 
                         for batch_obs, batch_actions, batch_returns, batch_logprobs, batch_advantages, batch_values in batch_iterator:
                             if batch_advantages.shape[0] < 10:
-                                print("Skipping: Too little data in batch")
-                                print("Shapes:", batch_obs.x.shape, batch_actions.shape, batch_returns.shape, batch_logprobs.shape, batch_advantages.shape, batch_values.shape)
+                                # print("Skipping: Too little data in batch")
+                                # print("Shapes:", batch_obs.x.shape, batch_actions.shape, batch_returns.shape, batch_logprobs.shape, batch_advantages.shape, batch_values.shape)
                                 continue
                             
                             if is_gnn_agent:
