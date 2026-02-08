@@ -58,6 +58,10 @@ def parse_args():
                         help="the path of the model to load (continue training from)")
     parser.add_argument("--agent-type", type=str, default="gnn", choices=("mlp", "gnn"),
                         help="agent type: mlp or gnn (must match the saved model)")
+    parser.add_argument("--freeze-action-net", action=argparse.BooleanOptionalAction, default=False,
+                        help="if toggled, will freeze the action network weights")
+    parser.add_argument("--freeze-value-net", action=argparse.BooleanOptionalAction, default=False,
+                        help="if toggled, will freeze the value network weights")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, default=12000,  # CleanRL default: 2000000
@@ -211,13 +215,21 @@ if __name__ == "__main__":
 
         is_gnn_agent = args.agent_type == "gnn"
         if is_gnn_agent:
-            agent = GNNAgent(envs, 18, 2).to(device)
+            agent = GNNAgent(
+                envs, 18, 2,
+                freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
+            ).to(device)
             gnn_preprocessor = GNNProcessor()
         else:
-            agent = MLPAgent(envs).to(device)
+            agent = MLPAgent(
+                envs, freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
+            ).to(device)
         if args.model_path is not None:
             agent.load_state_dict(torch.load(args.model_path))
-        optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+        optimizer = optim.Adam(
+            filter(lambda pa: pa.requires_grad, agent.parameters()),
+            lr=args.learning_rate, eps=1e-5
+        )
 
         global_step = 0
         start_time = time.time()

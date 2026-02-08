@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.nn import Sequential, ReLU, GELU, Linear, BatchNorm1d, Module, LayerNorm
+from torch.nn import Sequential, ReLU, GELU, Linear, Module, LayerNorm
 from torch.distributions import Categorical
 from torch_geometric.data import Data
 from torch_geometric.nn import GINEConv
@@ -14,7 +14,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 class MLPAgent(Module):
-    def __init__(self, envs):
+    def __init__(self, envs, freeze_action=False, freeze_value=False):
         super().__init__()
         # Simple MLP
         self.actor_latent = Sequential(
@@ -26,6 +26,12 @@ class MLPAgent(Module):
         self.action_space_dims = envs.single_action_space.nvec
         self.actor = layer_init(Linear(64, sum(self.action_space_dims)), std=0.01)
 
+        if freeze_action:
+            for param in self.actor_latent.parameters():
+                param.requires_grad = False
+            for param in self.actor.parameters():
+                param.requires_grad = False
+
         # Current implementation is IPPO (no centralized critic)
         self.value_latent = Sequential(
             layer_init(Linear(18, 32)),
@@ -34,6 +40,12 @@ class MLPAgent(Module):
             ReLU(),
         )
         self.critic = layer_init(Linear(64, 1), std=1)
+
+        if freeze_value:
+            for param in self.value_latent.parameters():
+                param.requires_grad = False
+            for param in self.critic.parameters():
+                param.requires_grad = False
 
     def get_value(self, x):
         x = x.clone()
@@ -98,16 +110,27 @@ class GNNLatentNet(Module):
 
 
 class GNNAgent(Module):
-    def __init__(self, envs, node_feature_count: int, edge_feature_count: int):
+    def __init__(self, envs, node_feature_count: int, edge_feature_count: int, freeze_action=False, freeze_value=False):
         super().__init__()
-        # TODO Maybe reduce to only local/neighbouring aircraft info instead of global
         self.actor_latent = GNNLatentNet(node_feature_count, edge_feature_count)
         self.action_space_dims = envs.single_action_space.nvec
         self.actor = layer_init(Linear(64, sum(self.action_space_dims)), std=0.01)
 
+        if freeze_action:
+            for param in self.actor_latent.parameters():
+                param.requires_grad = False
+            for param in self.actor.parameters():
+                param.requires_grad = False
+
         # Centralized GNN critic (MAPPO)
         self.value_latent = GNNLatentNet(node_feature_count, edge_feature_count)
         self.critic = layer_init(Linear(64, 1), std=1)
+
+        if freeze_value:
+            for param in self.value_latent.parameters():
+                param.requires_grad = False
+            for param in self.critic.parameters():
+                param.requires_grad = False
 
     def _pad_actions(self, actions: torch.Tensor, batch: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         padded_actions = []

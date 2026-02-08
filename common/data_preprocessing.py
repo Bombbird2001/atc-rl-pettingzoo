@@ -158,7 +158,7 @@ class GNNProcessor(DataProcessor):
             # Divide function call to handle when elements of pos_dist == 0
             np.divide(np.vecdot(delta_pos, v_sum), pos_dist, out=np.zeros_like(pos_dist), where=pos_dist != 0) / 2
         )).transpose()
-        edge_attr = torch.Tensor(edge_attr)[selected_edges].to(torch.float32)
+        edge_attr = torch.Tensor(edge_attr).to(torch.float32)[selected_edges]
         edge_index = edge_index[selected_edges]
         edge_index = edge_index.transpose(0, 1)
         # print(x)
