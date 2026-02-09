@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from common.constants import AIRCRAFT_COUNT, X_Y_SCALE_DOWN, ALT_SCALE_DOWN, HDG_BINS, ALT_BINS, SPD_BINS
 from torch import Tensor
 from torch_geometric.data import Data
-from typing import Tuple
+from typing import Tuple, Literal
 
 
 AC_FAMILY_MAPPING = {
@@ -116,6 +116,10 @@ class TransformerProcessor(DataProcessor):
 
 
 class GNNProcessor(DataProcessor):
+    def __init__(self, edge_criteria: Literal["fc", "dist_only", "dist_and_alt"]):
+        self.needs_dist = edge_criteria != "fc"
+        self.needs_alt = edge_criteria == "dist_and_alt"
+
     def preprocess_data(self, obs: torch.Tensor) -> Data:
         obs = obs[obs[:,-1] == 1,:-1]
         # print(obs.shape)
@@ -134,30 +138,36 @@ class GNNProcessor(DataProcessor):
         edge_pos_1 = obs[edge_index[:,1]][:,[2, 3]]
         edge_v_0 = obs[edge_index[:,0]][:,[6, 7]]
         edge_v_1 = obs[edge_index[:,1]][:,[6, 7]]
-        additional_range = np.array([1500, -1500]) / ALT_SCALE_DOWN
-        edge_alt_0 = torch.hstack((
-            obs[edge_index[:,0]][:,[4, 8]].max(dim=1, keepdim=True).values,
-            obs[edge_index[:,0]][:,[4, 8]].min(dim=1, keepdim=True).values
-        )) + additional_range
-        edge_alt_1 = torch.hstack((
-            obs[edge_index[:,1]][:,[4, 8]].max(dim=1, keepdim=True).values,
-            obs[edge_index[:,1]][:,[4, 8]].min(dim=1, keepdim=True).values)
-        ) + additional_range
         delta_pos = edge_pos_0 - edge_pos_1
         v_sum = edge_v_1 - edge_v_0
-        alt_overlap = ((edge_alt_0[:,1] <= edge_alt_1[:,0]) & (edge_alt_0[:,0] >= edge_alt_1[:,1]))
 
         # Put distance, closure rate in edge_attr
         # Closure rate is defined as (pos2 - pos1) dot (v1 - v2) / norm(pos2 - pos1)
         pos_dist = torch.linalg.norm(delta_pos, axis=1)
-        within_15nm = torch.Tensor(pos_dist <= 15 / X_Y_SCALE_DOWN).to(torch.bool)
-        selected_edges = alt_overlap & within_15nm
-        # print(selected_edges)
         edge_attr = np.vstack((
             pos_dist / np.sqrt(8),
             # Divide function call to handle when elements of pos_dist == 0
             np.divide(np.vecdot(delta_pos, v_sum), pos_dist, out=np.zeros_like(pos_dist), where=pos_dist != 0) / 2
         )).transpose()
+
+        selected_edges = torch.ones(edge_index.shape[0]).bool()
+        if self.needs_dist:
+            within_15nm = torch.Tensor(pos_dist <= 15 / X_Y_SCALE_DOWN).to(torch.bool)
+            selected_edges = selected_edges & within_15nm
+        if self.needs_alt:
+            additional_range = np.array([1500, -1500]) / ALT_SCALE_DOWN
+            edge_alt_0 = torch.hstack((
+                obs[edge_index[:,0]][:,[4, 8]].max(dim=1, keepdim=True).values,
+                obs[edge_index[:,0]][:,[4, 8]].min(dim=1, keepdim=True).values
+            )) + additional_range
+            edge_alt_1 = torch.hstack((
+                obs[edge_index[:,1]][:,[4, 8]].max(dim=1, keepdim=True).values,
+                obs[edge_index[:,1]][:,[4, 8]].min(dim=1, keepdim=True).values)
+            ) + additional_range
+            alt_overlap = ((edge_alt_0[:,1] <= edge_alt_1[:,0]) & (edge_alt_0[:,0] >= edge_alt_1[:,1]))
+            selected_edges = selected_edges & alt_overlap
+        # print(selected_edges)
+
         edge_attr = torch.Tensor(edge_attr).to(torch.float32)[selected_edges]
         edge_index = edge_index[selected_edges]
         edge_index = edge_index.transpose(0, 1)

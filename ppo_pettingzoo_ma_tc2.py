@@ -62,6 +62,8 @@ def parse_args():
                         help="if toggled, will freeze the action network weights")
     parser.add_argument("--freeze-value-net", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, will freeze the value network weights")
+    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt"],
+                        help="criteria to choose which nodes to connect edges between")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, default=12000,  # CleanRL default: 2000000
@@ -221,7 +223,7 @@ if __name__ == "__main__":
                 envs, 18, 2,
                 freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
             ).to(device)
-            gnn_preprocessor = GNNProcessor()
+            gnn_preprocessor = GNNProcessor(args.edge_criteria)
         else:
             agent = MLPAgent(
                 envs, freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
