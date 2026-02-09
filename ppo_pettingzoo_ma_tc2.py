@@ -172,10 +172,11 @@ if __name__ == "__main__":
     args = parse_args()
     print(args)
     run_name = f"{args.exp_name}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+    run = None
     if args.track:
         import wandb
 
-        wandb.init(
+        run = wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=True,
@@ -197,7 +198,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device_name = "cuda" if torch.cuda.is_available() and args.cuda else "cpu"
+    device = torch.device(device_name)
 
     # env setup
     envs = make_vec_env(
@@ -224,6 +226,10 @@ if __name__ == "__main__":
             agent = MLPAgent(
                 envs, freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
             ).to(device)
+        model_arch = agent.rep_string()
+        print(model_arch)
+        if run is not None:
+            run.config["model_arch"] = model_arch
         if args.model_path is not None:
             agent.load_state_dict(torch.load(args.model_path))
         optimizer = optim.Adam(
