@@ -249,7 +249,7 @@ if __name__ == "__main__":
             while True:
                 # Start the game
                 next_obs, info = envs.reset(seed=args.seed)
-                ac_mask = torch.IntTensor(next_obs[:,:,-1])
+                ac_mask = torch.IntTensor(next_obs[:,:,-1]).to(device)
                 if is_gnn_agent:
                     next_obs = _tensor_to_graph(next_obs)
                 else:
@@ -301,7 +301,7 @@ if __name__ == "__main__":
                         # Concat the aircraft mask, ignores actions generated for non-existent aircraft entries
                         torch.cat((action, ac_mask.unsqueeze(-1)), dim=-1).cpu().numpy()
                     )
-                    ac_mask = torch.IntTensor(next_obs[:,:,-1])
+                    ac_mask = torch.IntTensor(next_obs[:,:,-1]).to(device)
                     reward = reward.astype(np.float32)
 
                     rewards[step] = torch.tensor(reward).to(device)
@@ -419,7 +419,7 @@ if __name__ == "__main__":
                                 # Combine the graphs to treat them like a single environment
                                 batch_obs.batch = torch.zeros_like(batch_obs.batch)
                                 _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                                    batch_obs, torch.ones((1, batch_obs.batch.shape[0])), batch_actions.long().transpose(0, 1)
+                                    batch_obs, torch.ones((1, batch_obs.batch.shape[0]), device=device), batch_actions.long().transpose(0, 1)
                                 )
                             else:
                                 _, newlogprob, entropy, newvalue = agent.get_action_and_value(

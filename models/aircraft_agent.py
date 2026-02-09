@@ -137,7 +137,7 @@ class GNNAgent(Module):
         for env_idx in range(mask.shape[0]):
             env_mask = mask[env_idx]
             actions_no_pad = actions[:,batch == env_idx]
-            padded_output = torch.zeros((env_mask.shape[0], self.action_space_dims.shape[0]), dtype=torch.long)
+            padded_output = torch.zeros((env_mask.shape[0], self.action_space_dims.shape[0]), dtype=torch.long, device=env_mask.device)
             padded_output[env_mask.bool()] = actions_no_pad.transpose(0, 1)
             padded_actions.append(padded_output)
         # Returned shape: (num_envs, num_aircraft, 3)
@@ -148,7 +148,7 @@ class GNNAgent(Module):
         for env_idx in range(mask.shape[0]):
             env_mask = mask[env_idx]
             values_no_pad = values[batch == env_idx]
-            padded_output = torch.zeros(env_mask.shape[0])
+            padded_output = torch.zeros(env_mask.shape[0], device=env_mask.device)
             padded_output[env_mask.bool()] = values_no_pad
             padded_values.append(padded_output)
         return torch.stack(padded_values, dim=0)
