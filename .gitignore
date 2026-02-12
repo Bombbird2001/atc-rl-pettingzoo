@@ -5,3 +5,5 @@
 *.cmd
 runs
 wandb
+__pycache__
+slurm_out
