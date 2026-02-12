@@ -232,14 +232,19 @@ if __name__ == "__main__":
         print(model_arch)
         if run is not None:
             run.config["model_arch"] = model_arch
-        if args.model_path is not None:
-            agent.load_state_dict(torch.load(args.model_path))
+
         optimizer = optim.Adam(
             filter(lambda pa: pa.requires_grad, agent.parameters()),
             lr=args.learning_rate, eps=1e-5
         )
-
         global_step = 0
+
+        if args.model_path is not None:
+            saved_checkpoint = torch.load(args.model_path)
+            agent.load_state_dict(saved_checkpoint['agent'])
+            optimizer.load_state_dict(saved_checkpoint['optimizer'])
+            global_step = saved_checkpoint['global_step']
+
         start_time = time.time()
         update = 0
         num_updates = int(ceil(args.total_timesteps / args.batch_size))
@@ -564,8 +569,13 @@ if __name__ == "__main__":
         print(f"Exited training in {time.time() - start_time:.2f}s")
     finally:
         model_path = f"runs/{run_name}/agent.pt"
-        print(f"Saving model to {model_path}")
-        torch.save(agent.state_dict(), model_path)
+        print(f"Saving checkpoint to {model_path}")
+        checkpoint = {
+            'agent': agent.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'global_step': global_step,
+        }
+        torch.save(checkpoint, model_path)
         print("Exiting and cleaning up")
         envs.close()
         writer.close()
