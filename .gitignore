@@ -2,5 +2,6 @@
 *.iml
 *.yml
 *.sh
+*.cmd
 runs
 wandb

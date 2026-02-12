@@ -241,9 +241,9 @@ if __name__ == "__main__":
 
         if args.model_path is not None:
             saved_checkpoint = torch.load(args.model_path)
+            # agent.load_state_dict(saved_checkpoint)
             agent.load_state_dict(saved_checkpoint['agent'])
             optimizer.load_state_dict(saved_checkpoint['optimizer'])
-            global_step = saved_checkpoint['global_step']
 
         start_time = time.time()
         update = 0
@@ -573,7 +573,6 @@ if __name__ == "__main__":
         checkpoint = {
             'agent': agent.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'global_step': global_step,
         }
         torch.save(checkpoint, model_path)
         print("Exiting and cleaning up")
