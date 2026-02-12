@@ -37,11 +37,10 @@ class TC2GymEnv(gym.Env):
         self.is_eval = is_eval
         self.reset_print_period = reset_print_period
 
-        # Actions[0] = [aircraft 0 to 14, or no clearance (value = 0)]
-        # Actions[1] = [steps of 5 degrees from 0-359]
-        # Actions[2] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
-        # Actions[3] = [steps of 10 knots from 160 to 250 knots (for now)]
-        self.action_space = spaces.MultiDiscrete([72, 14, 10])
+        # Actions[0] = [-45, -10, 0, +10, +45 degrees]
+        # Actions[1] = [-3000, -1000, 0, +1000, +3000]
+        # Actions[2] = [-30, -10, 0, +10, +30 knots]
+        self.action_space = spaces.MultiDiscrete([5, 5, 5])
 
         # [aircraft type, x, y, alt, gs, track, angular speed, vertical speed,
         # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized

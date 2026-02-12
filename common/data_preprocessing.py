@@ -116,8 +116,9 @@ class TransformerProcessor(DataProcessor):
 
 
 class GNNProcessor(DataProcessor):
-    def __init__(self, edge_criteria: Literal["fc", "dist_only", "dist_and_alt"]):
-        self.needs_dist = edge_criteria != "fc"
+    def __init__(self, edge_criteria: Literal["fc", "dist_only", "dist_and_alt", "self_only"]):
+        self.self_only = edge_criteria == "self_only"
+        self.needs_dist = edge_criteria in ("dist_only", "dist_and_alt")
         self.needs_alt = edge_criteria == "dist_and_alt"
 
     def preprocess_data(self, obs: torch.Tensor) -> Data:
@@ -129,8 +130,10 @@ class GNNProcessor(DataProcessor):
         if node_count == 0:
             return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=torch.empty(2, 0, dtype=torch.int32), edge_attr=torch.empty(0, 2))
 
-        # edge_index = torch.asarray([(i, i) for i in range(node_count)])
-        edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
+        if self.self_only:
+            edge_index = torch.asarray([(i, i) for i in range(node_count)])
+        else:
+            edge_index = torch.asarray([(i, j) for j in range(node_count) for i in range(node_count)])
 
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
         # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)] + mask

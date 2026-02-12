@@ -62,7 +62,7 @@ def parse_args():
                         help="if toggled, will freeze the action network weights")
     parser.add_argument("--freeze-value-net", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, will freeze the value network weights")
-    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt"],
+    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"],
                         help="criteria to choose which nodes to connect edges between")
 
     # Algorithm specific arguments
@@ -173,7 +173,7 @@ class GraphBatchIterator:
 if __name__ == "__main__":
     args = parse_args()
     print(args)
-    run_name = f"{args.exp_name}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+    run_name = f"{args.exp_name}__{args.agent_type}__{args.edge_criteria}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
     run = None
     if args.track:
         import wandb

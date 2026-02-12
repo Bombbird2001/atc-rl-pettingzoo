@@ -30,6 +30,8 @@ def parse_args():
                         help="the path of the model to load")
     parser.add_argument("--agent-type", type=str, default="gnn", choices=("mlp", "gnn"),
                         help="agent type: mlp or gnn (must match the saved model)")
+    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"],
+                        help="criteria to choose which nodes to connect edges between")
     args = parser.parse_args()
     return args
 
@@ -60,7 +62,7 @@ if __name__ == "__main__":
     is_gnn_agent = args.agent_type == "gnn"
     if is_gnn_agent:
         agent = GNNAgent(envs, 18, 2).to(device)
-        gnn_preprocessor = GNNProcessor()
+        gnn_preprocessor = GNNProcessor(args.edge_criteria)
     else:
         agent = MLPAgent(envs).to(device)
         gnn_preprocessor = None

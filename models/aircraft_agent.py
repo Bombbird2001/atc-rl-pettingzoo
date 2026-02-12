@@ -90,6 +90,7 @@ class GNNLatentNet(Module):
 
         # self.gine1 = GINEConv(nn1, edge_dim=edge_feature_count, train_eps=True)
 
+        # self.embed = Linear(node_feature_count, 32)
         self.gat1 = GATv2Conv(node_feature_count, 32, heads=2, edge_dim=edge_feature_count)
         self.ln1 = LayerNorm(64)
         self.linear = layer_init(Linear(64, 64))
@@ -97,6 +98,7 @@ class GNNLatentNet(Module):
 
     def forward(self, x, edge_index, edge_attr):
         # h = self.gine1(x, edge_index, edge_attr)
+        # h = self.embed(x)
         h = self.gat1(x, edge_index, edge_attr)
         h = F.gelu(h)
         h = self.ln1(h)
