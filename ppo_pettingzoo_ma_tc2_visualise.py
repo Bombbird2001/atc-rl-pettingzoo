@@ -67,7 +67,7 @@ if __name__ == "__main__":
         agent = MLPAgent(envs).to(device)
         gnn_preprocessor = None
 
-    agent.load_state_dict(torch.load(args.model_path))
+    agent.load_state_dict(torch.load(args.model_path)['agent'])
     print(f"Agent loaded from {args.model_path}")
 
     signal.signal(signal.SIGINT, signal_handler)
