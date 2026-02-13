@@ -161,7 +161,7 @@ class ParallelThreadVecEnv(BaseVecEnv):
         reward_np = self._dict_reward_to_np(reward)
         termination_np = self._dict_termination_to_np(termination)
         truncation_np = self._dict_truncation_to_np(truncation)
-        return idx, obs_np, reward_np, termination_np, truncation_np, {}
+        return idx, obs_np, reward_np, termination_np, truncation_np, info
 
     def step(self, action: np.ndarray):
         # Expects shape of (num_env, AIRCRAFT_COUNT, action_dimension + 1)

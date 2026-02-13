@@ -64,9 +64,11 @@ def parse_args():
                         help="if toggled, will freeze the value network weights")
     parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"],
                         help="criteria to choose which nodes to connect edges between")
+    parser.add_argument("--save-interval", type=int, default=2_000_000,
+                        help="approximate number of steps between checkpoint saves")
 
     # Algorithm specific arguments
-    parser.add_argument("--total-timesteps", type=int, default=12000,  # CleanRL default: 2000000
+    parser.add_argument("--total-timesteps", type=int,
                         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
                         help="the learning rate of the optimizer")
@@ -170,6 +172,16 @@ class GraphBatchIterator:
             start_idx = end_idx
 
 
+def save_checkpoint(run_name: str, agent: nn.Module, optimizer: optim.Optimizer, save_count: int):
+    model_path = f"runs/{run_name}/agent_{save_count}.pt"
+    print(f"Saving checkpoint to {model_path}")
+    checkpoint = {
+        'agent': agent.state_dict(),
+        'optimizer': optimizer.state_dict(),
+    }
+    torch.save(checkpoint, model_path)
+
+
 if __name__ == "__main__":
     args = parse_args()
     print(args)
@@ -211,6 +223,11 @@ if __name__ == "__main__":
         init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
         is_eval=False,
     )
+
+    agent = None
+    optimizer = None
+    start_time = time.time()
+    last_save_count = 0
 
     try:
         assert isinstance(
@@ -261,7 +278,7 @@ if __name__ == "__main__":
         with tqdm(total=args.total_timesteps, unit="steps") as pbar:
             while True:
                 # Start the game
-                next_obs, info = envs.reset(seed=args.seed)
+                next_obs, infos = envs.reset(seed=args.seed)
                 ac_mask = torch.IntTensor(next_obs[:,:,-1]).to(device)
                 if is_gnn_agent:
                     next_obs = _tensor_to_graph(next_obs)
@@ -286,6 +303,11 @@ if __name__ == "__main__":
                 terminations = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT)).to(device)
                 truncations = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT)).to(device)
                 values = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT)).to(device)
+                episode_end_info = {
+                    'landing_rate': 0,
+                    'aircraft_conflict_rate': 0,
+                    'mva_conflict_rate': 0,
+                }
 
                 for step in range(0, args.num_steps):
                     # obs[step] stores the observation observed at that step
@@ -310,7 +332,7 @@ if __name__ == "__main__":
                     logprobs[step] = logprob
 
                     # TRY NOT TO MODIFY: execute the game and log data.
-                    next_obs, reward, termination, truncation, info = envs.step(
+                    next_obs, reward, termination, truncation, infos = envs.step(
                         # Concat the aircraft mask, ignores actions generated for non-existent aircraft entries
                         torch.cat((action, ac_mask.unsqueeze(-1)), dim=-1).cpu().numpy()
                     )
@@ -333,12 +355,18 @@ if __name__ == "__main__":
                     early_stop_loop = False
                     for env_idx in torch.where(terminating_envs)[0]:
                         envs.early_reset(env_idx.item(), args.seed)
+                        for key, value in infos[env_idx.item()][0].items():
+                            episode_end_info[key] += value
                         if next_active_agents.sum().item() == 0:
                             # All agents terminated, exit the step loop early
                             early_stop_loop = True
 
                     if early_stop_loop:
                         break
+
+                for env_idx in torch.where(next_active_agents.sum(dim=-1) > 0)[0]:
+                    for key, value in infos[env_idx.item()][0].items():
+                        episode_end_info[key] += value
 
                 with torch.no_grad():
                     # Here, our inputs are such that every agent will only have a single continuous active period between spawn and despawn/truncation
@@ -512,6 +540,11 @@ if __name__ == "__main__":
                     update += 1
                     rollout_buffer.reset()
 
+                    curr_save_count = global_step // args.save_interval
+                    if curr_save_count > last_save_count:
+                        save_checkpoint(run_name, agent, optimizer, curr_save_count)
+                        last_save_count = curr_save_count
+
                     # TRY NOT TO MODIFY: record rewards for plotting purposes
                     writer.add_scalar(
                         "charts/learning_rate", optimizer.param_groups[0]["lr"], global_step
@@ -525,6 +558,8 @@ if __name__ == "__main__":
                     writer.add_scalar("losses/explained_variance", explained_var, global_step)
                     writer.add_scalar("charts/grad_norm", grad_norm, global_step)
                     writer.add_scalar("charts/clipping_ratio", clipping_ratio, global_step)
+                    for key, value in episode_end_info.items():
+                        writer.add_scalar(f"metrics/{key}", value / args.num_envs, global_step)
                     if update % 10 == 0:
                         print(f"SPS: {int(global_step / (time.time() - start_time))}, Entropy: {entropy_loss.item():.3f}")
                     writer.add_scalar(
@@ -568,13 +603,8 @@ if __name__ == "__main__":
         print("Error encountered during training")
         print(f"Exited training in {time.time() - start_time:.2f}s")
     finally:
-        model_path = f"runs/{run_name}/agent.pt"
-        print(f"Saving checkpoint to {model_path}")
-        checkpoint = {
-            'agent': agent.state_dict(),
-            'optimizer': optimizer.state_dict(),
-        }
-        torch.save(checkpoint, model_path)
+        if agent is not None and optimizer is not None:
+            save_checkpoint(run_name, agent, optimizer, last_save_count + 1)
         print("Exiting and cleaning up")
         envs.close()
         writer.close()

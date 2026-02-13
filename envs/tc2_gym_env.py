@@ -134,7 +134,12 @@ class TC2GymEnv(gym.Env):
         values = self.sim_bridge.get_aircraft_state()
         obs = self._get_observation_from_aircraft_state(values)
 
-        info = {}
+        info = {
+            'landing_rate': 0,
+            'aircraft_conflict_rate': 0,
+            'mva_conflict_rate': 0,
+        }
+
         self.episode += 1
         self.steps = 0
         return obs, info
@@ -150,8 +155,6 @@ class TC2GymEnv(gym.Env):
             raise ValueError(f"[{self.instance_name}] Proceed flag must be 1")
 
         # Write action to shared memory and signal
-        # self.action_dist.append(action) TODO update for MARL
-
         self.sim_bridge.write_actions(action)
 
         # Set the reset request flag before signalling action done
@@ -173,14 +176,18 @@ class TC2GymEnv(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        aircraft_state = values[1 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
+        aircraft_state = values[4 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
         if terminated[obs[:,-2].astype(np.bool)][:,0].all():
             self.terminated_count += 1
 
-        info = {}
+        info = {
+            'landing_rate': values[1],
+            'aircraft_conflict_rate': values[2],
+            'mva_conflict_rate': values[3],
+        }
 
         return obs, reward, terminated, truncated, info
 
