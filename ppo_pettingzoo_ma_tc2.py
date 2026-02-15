@@ -38,7 +38,7 @@ from utils.vec_envs import make_vec_env, ParallelThreadVecEnv
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
+    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"), required=True,
                         help="the name of this experiment")
     parser.add_argument("--seed", type=int, default=777,
                         help="seed of the experiment")
@@ -62,21 +62,21 @@ def parse_args():
                         help="if toggled, will freeze the action network weights")
     parser.add_argument("--freeze-value-net", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, will freeze the value network weights")
-    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"],
+    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"], required=True,
                         help="criteria to choose which nodes to connect edges between")
     parser.add_argument("--save-interval", type=int, default=2_000_000,
                         help="approximate number of steps between checkpoint saves")
 
     # Algorithm specific arguments
-    parser.add_argument("--total-timesteps", type=int,
+    parser.add_argument("--total-timesteps", type=int, required=True,
                         help="total timesteps of the experiments")
-    parser.add_argument("--learning-rate", type=float, default=2.5e-4,
+    parser.add_argument("--learning-rate", type=float, required=True,
                         help="the learning rate of the optimizer")
-    parser.add_argument("--num-envs", type=int, default=16,
+    parser.add_argument("--num-envs", type=int, required=True,
                         help="the number of parallel game environments")
-    parser.add_argument("--num-steps", type=int, default=256,
+    parser.add_argument("--num-steps", type=int, required=True,
                         help="the number of steps to run in each environment per policy rollout")
-    parser.add_argument("--max-agents", type=int, default=None,
+    parser.add_argument("--max-agents", type=int, required=True,
                         help="the maximum number of agents that can be present in game (this affects only the rollout buffer size)")
     parser.add_argument("--anneal-lr", action=argparse.BooleanOptionalAction, default=True,
                         help="Toggle learning rate annealing for policy and value networks")
@@ -84,7 +84,7 @@ def parse_args():
                         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
                         help="the lambda for the general advantage estimation")
-    parser.add_argument("--minibatch-size", type=int, default=32,
+    parser.add_argument("--minibatch-size", type=int, default=10,
                         help="the size of mini-batches")
     parser.add_argument("--update-epochs", type=int, default=4,
                         help="the K epochs to update the policy")

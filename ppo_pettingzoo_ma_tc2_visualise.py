@@ -24,13 +24,13 @@ def parse_args():
                         help="if toggled, `torch.backends.cudnn.deterministic=False`")
     parser.add_argument("--cuda", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--num-steps", type=int, default=512,
+    parser.add_argument("--num-steps", type=int, required=True,
                         help="the number of steps to run in each environment per policy rollout")
     parser.add_argument("--model-path", type=str, default=None,
                         help="the path of the model to load")
     parser.add_argument("--agent-type", type=str, default="gnn", choices=("mlp", "gnn"),
                         help="agent type: mlp or gnn (must match the saved model)")
-    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"],
+    parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"], required=True,
                         help="criteria to choose which nodes to connect edges between")
     args = parser.parse_args()
     return args
