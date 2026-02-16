@@ -145,6 +145,6 @@ class TC2PettingZooEnv(ParallelEnv):
     def close(self):
         self.gym_env.close()
 
-def make_env(env_id: int, **kwargs):
-    backing_env = TC2GymEnv(instance_suffix=str(env_id), render_mode="human", **kwargs)
+def make_env(env_id: str, **kwargs):
+    backing_env = TC2GymEnv(instance_suffix=env_id, render_mode="human", **kwargs)
     return TC2PettingZooEnv(backing_env)

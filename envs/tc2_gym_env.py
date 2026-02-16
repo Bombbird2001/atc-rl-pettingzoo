@@ -3,7 +3,6 @@ import numpy as np
 import os
 import pandas as pd
 import platform
-import random
 import signal
 import subprocess
 import torch
@@ -26,8 +25,6 @@ class TC2GymEnv(gym.Env):
     ):
         super().__init__()
 
-        if init_sim:
-            instance_suffix = f"{instance_suffix}_{random.randbytes(3).hex()}"
         self.init_sim = init_sim
         self.sim_bridge = GameBridge.get_bridge_for_platform(instance_suffix=instance_suffix)
         self.signalled_ready = False
@@ -68,7 +65,10 @@ class TC2GymEnv(gym.Env):
 
         if init_sim:
             print(f"[{self.instance_name}] Starting simulator")
-            self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix} {1 if is_eval else 0}", shell=True)
+            env_args = ["java", "-jar", SIMULATOR_JAR, instance_suffix, "1" if is_eval else "0"]
+            self.sim_process = subprocess.Popen(env_args)
+        else:
+            print(f"[{self.instance_name}] init_sim is False, simulator will not start automatically")
 
     def _get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
         tmp_state = np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,1:]

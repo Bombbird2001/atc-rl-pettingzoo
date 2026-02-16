@@ -52,8 +52,8 @@ class BaseVecEnv(ABC):
         raise NotImplementedError
 
 
-def make_vec_env(vec_env_cls: Type[BaseVecEnv], env_count: int, make_env_fn: Callable, **kwargs):
-    envs = [make_env_fn(env_id=env_id, **kwargs) for env_id in range(env_count)]
+def make_vec_env(vec_env_cls: Type[BaseVecEnv], env_ids: List[str], make_env_fn: Callable, **kwargs):
+    envs = [make_env_fn(env_id=env_id, **kwargs) for env_id in env_ids]
 
     return vec_env_cls(envs)
 

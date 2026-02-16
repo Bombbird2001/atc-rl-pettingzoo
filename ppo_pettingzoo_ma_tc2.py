@@ -14,6 +14,7 @@ import gymnasium as gym
 import joblib
 import numpy as np
 import os
+import random
 import time
 import torch
 import torch.nn as nn
@@ -66,6 +67,8 @@ def parse_args():
                         help="criteria to choose which nodes to connect edges between")
     parser.add_argument("--save-interval", type=int, default=2_000_000,
                         help="approximate number of steps between checkpoint saves")
+    parser.add_argument('--env-ids', nargs='+', type=str, default=None,
+                        help="the list of environment IDs, if they are being initialised separately; --no-auto-init-sim should be set")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, required=True,
@@ -187,6 +190,16 @@ if __name__ == "__main__":
     print(args)
     run_name = f"{args.exp_name}__{args.agent_type}__{args.edge_criteria}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
     run = None
+
+    env_ids = args.env_ids
+    if env_ids is None:
+        env_ids = [f"{env_no}_{random.randbytes(3).hex()}" for env_no in range(args.num_envs)]
+    else:
+        if args.num_envs != len(env_ids):
+            raise Exception(f"length of env_ids {len(env_ids)} != num_envs {args.num_envs}")
+        if args.auto_init_sim:
+            raise Exception("env_ids passed, but auto-init-sim is set to True; expecting False")
+
     if args.track:
         import wandb
 
@@ -207,7 +220,7 @@ if __name__ == "__main__":
         )
 
     # TRY NOT TO MODIFY: seeding
-    # random.seed(args.seed)  # Disable since random is being used to generate random identifiers for shared memory
+    random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
@@ -218,7 +231,7 @@ if __name__ == "__main__":
     # env setup
     envs = make_vec_env(
         ParallelThreadVecEnv,
-        args.num_envs, make_env,
+        env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
         init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
         is_eval=False,
