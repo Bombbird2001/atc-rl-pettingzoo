@@ -43,13 +43,14 @@ if __name__ == "__main__":
 
     popen_args = []
     if assigned_cores:
-        popen_args.extend(["taskset", "-c", assigned_cores[0]])
+        popen_args.extend(["taskset", "-c", str(assigned_cores[0])])
     popen_args.extend(["python", script_to_invoke])
     popen_args.extend(script_args)
+    print("Launching", " ".join(popen_args))
     train_process = subprocess.Popen(popen_args)
 
-    # Terrible way to wait for the script ot start
-    time.sleep(10)
+    # Terrible way to wait for the script to start
+    time.sleep(30)
 
     # Start all simulator processes
     sim_args = ["java", "-jar", SIMULATOR_JAR]
@@ -59,6 +60,7 @@ if __name__ == "__main__":
         if assigned_cores:
             taskset_args.extend(["taskset", "-c", str(assigned_cores[(idx // ENVS_PER_CPU) + 1])])
         all_args = taskset_args + sim_args + [env_id, "0"]
+        print("Launching", " ".join(all_args))
         env_processes.append(subprocess.Popen(all_args))
 
     train_process.wait()
