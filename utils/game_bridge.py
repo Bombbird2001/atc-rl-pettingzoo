@@ -14,10 +14,10 @@ elif os_name == "Darwin" or os_name == "Linux":
 
 class GameBridge(ABC):
     # Shared region:
-    # 12 bytes constant: [proceed flag(1 byte)] [3 bytes padding] [proportion landed(4 bytes)] [aircraft conflict time per aircraft(4 bytes)] [MVA conflict time per aircraft(4 bytes)]
+    # 12 bytes constant: [proceed flag(1 byte)] [close program flag(1 byte)] [2 bytes padding] [proportion landed(4 bytes)] [aircraft conflict time per aircraft(4 bytes)] [MVA conflict time per aircraft(4 bytes)]
     # 6 bytes per instruction: [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [validity(1 byte)] [1 byte padding]
     # + 52 bytes per aircraft: [reward(4 bytes)] [state(48 bytes (4x chars, 7x floats, 3x ints, 3x byte (for locCap, validity, terminated), 1x byte (agent ID)))]
-    CONSTANT_FORMAT = "bxxxfff"
+    CONSTANT_FORMAT = "bbxxfff"
     CONSTANT_SIZE = 16
     PER_INSTRUCTION_FORMAT = "hbbbx"
     PER_INSTRUCTION_SIZE = 6
@@ -78,6 +78,8 @@ class WindowsGameBridge(GameBridge):
     def __init__(self, instance_suffix=""):
         # Create anonymous memory-mapped file with a local name
         self.mm = mmap.mmap(-1, self.__class__.FILE_SIZE, tagname=f"Local\\ATCSharedMem{instance_suffix}")
+        self.mm.seek(1)
+        self.mm.write(struct.pack("b", 0))
 
         # Named events for synchronization
         self.trainer_initialized = win32event.CreateEvent(None, False, False, f"Local\\ATCTrainerInit{instance_suffix}")
@@ -119,6 +121,10 @@ class WindowsGameBridge(GameBridge):
         self.mm.write(struct.pack(AIRCRAFT_COUNT * self.__class__.PER_INSTRUCTION_FORMAT,*aircraft_instructions))
 
     def close(self):
+        self.mm.seek(1)
+        self.mm.write(struct.pack("b", 1))
+        self.signal_action_done()
+
         self.mm.close()
 
 
@@ -139,6 +145,8 @@ class UnixGameBridge(GameBridge):
 
         self.mm = mmap.mmap(self.shm.fd, self.shm.size)
         self.shm.close_fd()
+        self.mm.seek(1)
+        self.mm.write(struct.pack("b", 0))
 
         self.trainer_initialized = self.__create_semaphore__(f"ATCTrainerInit{instance_suffix}")
         self.reset_sim = self.__create_semaphore__(f"ATCResetEvent{instance_suffix}")
@@ -179,14 +187,14 @@ class UnixGameBridge(GameBridge):
         self.mm.write(struct.pack(AIRCRAFT_COUNT * self.__class__.PER_INSTRUCTION_FORMAT,*aircraft_instructions))
 
     def close(self):
+        self.mm.seek(1)
+        self.mm.write(struct.pack("b", 1))
+        self.signal_action_done()
+
         self.mm.close()
         self.shm.unlink()
 
         self.reset_sim.close()
-        #self.reset_sim.unlink()
         self.action_ready.close()
-        #self.action_ready.unlink()
         self.action_done.close()
-        #self.action_done.unlink()
         self.reset_after_step.close()
-        #self.reset_after_step.unlink()
