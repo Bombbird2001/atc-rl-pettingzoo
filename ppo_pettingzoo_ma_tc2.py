@@ -581,15 +581,22 @@ if __name__ == "__main__":
 
                     # Use the rewards obtained from this iteration before training to compute average reward
                     if is_gnn_agent:
-                        ac_mask = masks.bool().reshape(args.num_steps, -1).any(dim=0)
+                        active_mask = masks.bool().reshape(args.num_steps, -1)
                     else:
-                        ac_mask = obs.reshape(args.num_steps, -1, envs.single_observation_space.shape[0])[:, :,-1].squeeze(dim=-1).bool().any(dim=0)
-                    rewards = rewards.reshape(args.num_steps, -1)[:,ac_mask]
+                        active_mask = obs.reshape(args.num_steps, -1, envs.single_observation_space.shape[0])[:, :,-1].squeeze(dim=-1).bool()
+                    rewards = rewards.reshape(args.num_steps, -1)[:,active_mask.any(dim=0)]
                     avg_agent_reward = rewards.sum(dim=0).mean()
                     if update % 10 == 0:
                         print("Average reward:", avg_agent_reward.item())
                     writer.add_scalar(
                         "episode/average_agent_reward", avg_agent_reward.item(), global_step
+                    )
+
+                    # Compute approximate agent lifespan (lower is better, since that means it landed sooner)
+                    agent_lifespans = torch.where(active_mask[-1,:], active_mask.shape[0], active_mask.sum(dim=0))
+                    avg_agent_lifespan = agent_lifespans.sum() / (agent_lifespans > 0).sum()  # Exclude agents that didn't appear at all
+                    writer.add_scalar(
+                        "episode/average_agent_lifespan", avg_agent_lifespan.item(), global_step
                     )
 
                     # SMA of reward
