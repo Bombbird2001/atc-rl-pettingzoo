@@ -138,6 +138,7 @@ class TC2GymEnv(gym.Env):
             'landing_rate': 0,
             'aircraft_conflict_rate': 0,
             'mva_conflict_rate': 0,
+            'wake_conflict_rate': 0,
         }
 
         self.episode += 1
@@ -176,7 +177,7 @@ class TC2GymEnv(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        aircraft_state = values[5 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
+        aircraft_state = values[6 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
@@ -187,6 +188,7 @@ class TC2GymEnv(gym.Env):
             'landing_rate': values[2],
             'aircraft_conflict_rate': values[3],
             'mva_conflict_rate': values[4],
+            'wake_conflict_rate': values[5],
         }
 
         return obs, reward, terminated, truncated, info

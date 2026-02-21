@@ -320,6 +320,7 @@ if __name__ == "__main__":
                     'landing_rate': 0,
                     'aircraft_conflict_rate': 0,
                     'mva_conflict_rate': 0,
+                    'wake_conflict_rate': 0,
                 }
 
                 for step in range(0, args.num_steps):
