@@ -69,12 +69,20 @@ def parse_args():
                         help="approximate number of steps between checkpoint saves")
     parser.add_argument('--env-ids', nargs='+', type=str, default=None,
                         help="the list of environment IDs, if they are being initialised separately; --no-auto-init-sim should be set")
+    parser.add_argument("--mva-penalty", type=float, required=True,
+                        help="the penalty value for MVA conflicts")
+    parser.add_argument("--conflict-penalty", type=float, required=True,
+                        help="the penalty value for aircraft conflicts")
+    parser.add_argument("--wake-penalty", type=float, required=True,
+                        help="the penalty value for wake conflicts")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, required=True,
                         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, required=True,
                         help="the learning rate of the optimizer")
+    parser.add_argument("--min-lr", type=float, required=True,
+                        help="the minimum learning rate of the optimizer, if anneal-lr is true")
     parser.add_argument("--num-envs", type=int, required=True,
                         help="the number of parallel game environments")
     parser.add_argument("--num-steps", type=int, required=True,
@@ -188,7 +196,10 @@ def save_checkpoint(run_name: str, agent: nn.Module, optimizer: optim.Optimizer,
 if __name__ == "__main__":
     args = parse_args()
     print(args)
-    run_name = f"{args.exp_name}__{args.agent_type}__{args.edge_criteria}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+    run_name = (f"{args.exp_name}__{args.agent_type}__{args.edge_criteria}"
+                f"__penalty-{args.mva_penalty}-{args.conflict_penalty}-{args.wake_penalty}"
+                f"__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+                )
     run = None
 
     env_ids = args.env_ids
@@ -233,8 +244,9 @@ if __name__ == "__main__":
         ParallelThreadVecEnv,
         env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
-        is_eval=False,
+        mva_penalty=args.mva_penalty, conflict_penalty=args.conflict_penalty,
+        wake_penalty=args.wake_penalty, init_sim=args.auto_init_sim, reset_print_period=100,
+        max_steps=args.num_steps, is_eval=False,
     )
 
     agent = None
@@ -449,7 +461,7 @@ if __name__ == "__main__":
                     # Annealing the rate if instructed to do so.
                     if args.anneal_lr:
                         frac = 1.0 - (update - 1.0) / num_updates
-                        lrnow = frac * args.learning_rate
+                        lrnow = max(frac * args.learning_rate, args.min_lr)
                         optimizer.param_groups[0]["lr"] = lrnow
 
                     # Optimizing the policy and value network

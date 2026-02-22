@@ -20,16 +20,17 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 class TC2GymEnv(gym.Env):
     def __init__(
-            self, ac_type_one_hot_encoder: OneHotEncoder, is_eval=False, render_mode=None, reset_print_period=50, instance_suffix="",
-            init_sim=True, max_steps=300
+            self, ac_type_one_hot_encoder: OneHotEncoder, mva_penalty: float, conflict_penalty: float,
+            wake_penalty: float, is_eval=False, render_mode=None, reset_print_period=50,
+            env_id="", init_sim=True, max_steps=300
     ):
         super().__init__()
 
         self.init_sim = init_sim
-        self.sim_bridge = GameBridge.get_bridge_for_platform(instance_suffix=instance_suffix)
+        self.sim_bridge = GameBridge.get_bridge_for_platform(instance_suffix=env_id)
         self.signalled_ready = False
 
-        self.instance_name = f"env{instance_suffix}"
+        self.instance_name = f"env{env_id}"
 
         self.is_eval = is_eval
         self.reset_print_period = reset_print_period
@@ -65,7 +66,10 @@ class TC2GymEnv(gym.Env):
 
         if init_sim:
             print(f"[{self.instance_name}] Starting simulator")
-            env_args = ["java", "-jar", SIMULATOR_JAR, instance_suffix, "1" if is_eval else "0"]
+            env_args = [
+                "java", "-jar", SIMULATOR_JAR, env_id, "1" if is_eval else "0",
+                str(mva_penalty), str(conflict_penalty), str(wake_penalty)
+            ]
             self.sim_process = subprocess.Popen(env_args)
         else:
             print(f"[{self.instance_name}] init_sim is False, simulator will not start automatically")
