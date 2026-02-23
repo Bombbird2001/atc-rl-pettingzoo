@@ -16,13 +16,13 @@ class GameBridge(ABC):
     # Shared region:
     # 12 bytes constant: [proceed flag(1 byte)] [close program flag(1 byte)] [2 bytes padding] [proportion landed(4 bytes)] [aircraft conflict time per aircraft(4 bytes)] [MVA conflict time per aircraft(4 bytes)] [Wake conflict time per aircraft(4 bytes)]
     # 6 bytes per instruction: [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [validity(1 byte)] [1 byte padding]
-    # + 52 bytes per aircraft: [reward(4 bytes)] [state(48 bytes (4x chars, 7x floats, 3x ints, 3x byte (for locCap, validity, terminated), 1x byte (agent ID)))]
+    # + 56 bytes per aircraft: [reward(4 bytes)] [state(47 bytes (4x chars, 7x floats, 3x ints, 4x byte (for locCap, validity, terminated, altitude action masking)))] [1x byte (agent ID)] [3 bytes padding]
     CONSTANT_FORMAT = "bbxxffff"
     CONSTANT_SIZE = 20
     PER_INSTRUCTION_FORMAT = "hbbbx"
     PER_INSTRUCTION_SIZE = 6
-    PER_AIRCRAFT_FORMAT = "fccccfffffffiiibbbb"
-    PER_AIRCRAFT_SIZE = 52
+    PER_AIRCRAFT_FORMAT = "fccccfffffffiiibbbbbxxx"
+    PER_AIRCRAFT_SIZE = 56
     ADDITIONAL_PADDING_FORMAT = "x"
     ADDITIONAL_PADDING_SIZE = (8 - (CONSTANT_SIZE + AIRCRAFT_COUNT * PER_INSTRUCTION_SIZE) % 8) % 8
     FILE_SIZE = CONSTANT_SIZE + AIRCRAFT_COUNT * PER_INSTRUCTION_SIZE + ADDITIONAL_PADDING_SIZE + AIRCRAFT_COUNT * PER_AIRCRAFT_SIZE

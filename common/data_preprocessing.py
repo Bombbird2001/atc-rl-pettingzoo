@@ -121,14 +121,15 @@ class GNNProcessor(DataProcessor):
         self.needs_dist = edge_criteria in ("dist_only", "dist_and_alt")
         self.needs_alt = edge_criteria == "dist_and_alt"
 
-    def preprocess_data(self, obs: torch.Tensor) -> Data:
-        obs = obs[obs[:,-1] == 1,:-1]
+    def preprocess_data(self, obs: torch.Tensor) -> Tuple[Data, torch.Tensor]:
+        alt_action_mask = obs[obs[:,-1] == 1,-2].int().unsqueeze(-1)
+        obs = obs[obs[:,-1] == 1,:-2]
         # print(obs.shape)
 
         node_count = obs.shape[0]
 
         if node_count == 0:
-            return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=torch.empty(2, 0, dtype=torch.int32), edge_attr=torch.empty(0, 2))
+            return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=torch.empty(2, 0, dtype=torch.int32), edge_attr=torch.empty(0, 2)), alt_action_mask
 
         if self.self_only:
             edge_index = torch.asarray([(i, i) for i in range(node_count)])
@@ -178,7 +179,7 @@ class GNNProcessor(DataProcessor):
         # print(y)
         # print(edge_index)
         # print(edge_attr)
-        return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=edge_index, edge_attr=edge_attr)
+        return Data(x=torch.Tensor(obs).to(torch.float32), edge_index=edge_index, edge_attr=edge_attr), alt_action_mask
 
     def postprocess_data_multi_aircraft(self, action: torch.Tensor) -> np.ndarray:
         # print(action)

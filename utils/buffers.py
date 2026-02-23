@@ -11,6 +11,7 @@ class RolloutBuffer:
         self.advantages = torch.Tensor().to(device)
         self.returns = torch.Tensor().to(device)
         self.values = torch.Tensor().to(device)
+        self.action_masks = torch.IntTensor().to(device)
 
     @property
     def size(self):
@@ -27,8 +28,9 @@ class RolloutBuffer:
         self.advantages = torch.Tensor().to(self.device)
         self.returns = torch.Tensor().to(self.device)
         self.values = torch.Tensor().to(self.device)
+        self.action_masks = torch.IntTensor().to(self.device)
 
-    def add_data(self, obs, logprobs, actions, advantages, returns, values):
+    def add_data(self, obs, logprobs, actions, advantages, returns, values, action_masks):
         # Adds data to the buffer; discards extra data that would have exceeded max_size
         data_length = obs.shape[0]
         assert data_length <= self.max_size
@@ -37,6 +39,7 @@ class RolloutBuffer:
         assert data_length == advantages.shape[0]
         assert data_length == returns.shape[0]
         assert data_length == values.shape[0]
+        assert data_length == action_masks.shape[0]
 
         capacity_remaining = self.max_size - data_length - self.obs.shape[0]
         if capacity_remaining >= 0:
@@ -46,6 +49,7 @@ class RolloutBuffer:
             self.advantages = torch.cat((self.advantages, advantages))
             self.returns = torch.cat((self.returns, returns))
             self.values = torch.cat((self.values, values))
+            self.action_masks = torch.cat((self.action_masks, action_masks))
         else:
             self.obs = torch.cat((self.obs, obs[:capacity_remaining]))
             self.logprobs = torch.cat((self.logprobs, logprobs[:capacity_remaining]))
@@ -53,9 +57,10 @@ class RolloutBuffer:
             self.advantages = torch.cat((self.advantages, advantages[:capacity_remaining]))
             self.returns = torch.cat((self.returns, returns[:capacity_remaining]))
             self.values = torch.cat((self.values, values[:capacity_remaining]))
+            self.action_masks = torch.cat((self.action_masks, action_masks[:capacity_remaining]))
 
     def get_data(self):
-        return self.obs, self.logprobs, self.actions, self.advantages, self.returns, self.values
+        return self.obs, self.logprobs, self.actions, self.advantages, self.returns, self.values, self.action_masks
 
 
 class GraphRolloutBuffer:
@@ -68,6 +73,7 @@ class GraphRolloutBuffer:
         self.advantages = torch.Tensor().to(device)
         self.returns = torch.Tensor().to(device)
         self.values = torch.Tensor().to(device)
+        self.action_masks = torch.IntTensor().to(device)
         self.node_count = 0
 
     @property
@@ -85,9 +91,10 @@ class GraphRolloutBuffer:
         self.advantages = torch.Tensor().to(self.device)
         self.returns = torch.Tensor().to(self.device)
         self.values = torch.Tensor().to(self.device)
+        self.action_masks = torch.IntTensor().to(self.device)
         self.node_count = 0
 
-    def add_data(self, obs, logprobs, actions, advantages, returns, values):
+    def add_data(self, obs, logprobs, actions, advantages, returns, values, action_masks):
         if self.full:
             raise Exception("GraphRolloutBuffer is already full")
 
@@ -100,6 +107,7 @@ class GraphRolloutBuffer:
         assert data_length == advantages.shape[0]
         assert data_length == returns.shape[0]
         assert data_length == values.shape[0]
+        assert data_length == action_masks.shape[0]
 
         capacity_remaining = self.max_size - data_length - self.node_count
         if capacity_remaining >= 0:
@@ -109,6 +117,7 @@ class GraphRolloutBuffer:
             self.advantages = torch.cat((self.advantages, advantages))
             self.returns = torch.cat((self.returns, returns))
             self.values = torch.cat((self.values, values))
+            self.action_masks = torch.cat((self.action_masks, action_masks))
             self.node_count += data_length
         else:
             # Determine up to which index to add
@@ -124,7 +133,8 @@ class GraphRolloutBuffer:
             self.advantages = torch.cat((self.advantages, advantages[:newly_added_nodes]))
             self.returns = torch.cat((self.returns, returns[:newly_added_nodes]))
             self.values = torch.cat((self.values, values[:newly_added_nodes]))
+            self.action_masks = torch.cat((self.action_masks, action_masks[:newly_added_nodes]))
             self.node_count += newly_added_nodes
 
     def get_data(self):
-        return self.obs, self.logprobs, self.actions, self.advantages, self.returns, self.values
+        return self.obs, self.logprobs, self.actions, self.advantages, self.returns, self.values, self.action_masks

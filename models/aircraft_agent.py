@@ -46,13 +46,19 @@ class Agent(Module):
         x = x.clone()
         return self.critic(self.value_latent(x))
 
-    def get_action_and_value(self, x, action=None, use_mode: bool = False):
+    def get_action_and_value(self, x, alt_action_mask_int: torch.Tensor=None, action=None, use_mode: bool = False):
         # Input shape: (..., feature_size)
         # Modified to support MultiDiscrete
         x = x.clone()
         hidden = self.actor_latent(x)
         logits = self.actor(hidden)
         hdg_logits, alt_logits, spd_logits = logits.split(tuple(self.action_space_dims), dim=-1)
+        if alt_action_mask_int is not None:
+            mask_base = 2 ** torch.arange(3, -1, -1)
+            offset = (mask_base.bitwise_and(alt_action_mask_int) == 0) * torch.finfo(torch.float32).min
+            if alt_logits.shape != offset.shape:
+                raise ValueError(f"Expected alt_logits shape {alt_logits.shape} to match offset {offset.shape}")
+            alt_logits = alt_logits + offset
         hdg_probs = Categorical(logits=hdg_logits)
         alt_probs = Categorical(logits=alt_logits)
         spd_probs = Categorical(logits=spd_logits)
@@ -123,13 +129,22 @@ class GNNAgent(Module):
         values = self.critic(value_hidden).squeeze(-1)
         return self._pad_scalar(values, x.batch, mask)
 
-    def get_action_and_value(self, x: Data, mask: torch.Tensor, action=None, use_mode: bool = False):
+    def get_action_and_value(
+            self, x: Data, mask: torch.Tensor, alt_action_mask_int: torch.Tensor=None,
+            action=None, use_mode: bool=False
+    ):
         # Input shape: (..., feature_size)
         # Modified to support MultiDiscrete
         x = x.clone()
         hidden = self.actor_latent(x.x, x.edge_index, x.edge_attr)
         logits = self.actor(hidden)
         hdg_logits, alt_logits, spd_logits = logits.split(tuple(self.action_space_dims), dim=-1)
+        if alt_action_mask_int is not None:
+            mask_base = 2 ** torch.arange(3, -1, -1)
+            offset = (mask_base.bitwise_and(alt_action_mask_int) == 0) * torch.finfo(torch.float32).min
+            if alt_logits.shape != offset.shape:
+                raise ValueError(f"Expected alt_logits shape {alt_logits.shape} to match offset {offset.shape}")
+            alt_logits = alt_logits + offset
         hdg_probs = Categorical(logits=hdg_logits)
         alt_probs = Categorical(logits=alt_logits)
         spd_probs = Categorical(logits=spd_logits)

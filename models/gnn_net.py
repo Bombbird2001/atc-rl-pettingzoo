@@ -15,7 +15,7 @@ class GNNGineNet(GNNNet):
             layer_init(Linear(node_feature_count, 32)),
             LayerNorm(32),
             GELU(),
-            layer_init(Linear(32, 32)),
+            layer_init(Linear(32, 64)),
         )
 
         self.gine1 = GINEConv(nn1, edge_dim=edge_feature_count, train_eps=True)
