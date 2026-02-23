@@ -26,7 +26,7 @@ from common.data_preprocessing import GNNProcessor
 from datetime import datetime
 from envs.tc2_pettingzoo_env import make_env
 from math import ceil
-from models.aircraft_agent import MLPAgent, GNNAgent
+from models.aircraft_agent import Agent, GNNAgent, ModelRegistry
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.data import Data
@@ -57,8 +57,8 @@ def parse_args():
                         help="if toggled, will automatically initialize the simulators for the environment")
     parser.add_argument("--model-path", type=str, default=None,
                         help="the path of the model to load (continue training from)")
-    parser.add_argument("--agent-type", type=str, default="gnn", choices=("mlp", "gnn"),
-                        help="agent type: mlp or gnn (must match the saved model)")
+    parser.add_argument("--agent-class", type=str, required=True,
+                        help="agent class name (must match the saved model, if any)")
     parser.add_argument("--freeze-action-net", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, will freeze the action network weights")
     parser.add_argument("--freeze-value-net", action=argparse.BooleanOptionalAction, default=False,
@@ -69,6 +69,8 @@ def parse_args():
                         help="approximate number of steps between checkpoint saves")
     parser.add_argument('--env-ids', nargs='+', type=str, default=None,
                         help="the list of environment IDs, if they are being initialised separately; --no-auto-init-sim should be set")
+    parser.add_argument("--goal-reward", type=float, required=True,
+                        help="the reward for reaching the goal state")
     parser.add_argument("--mva-penalty", type=float, required=True,
                         help="the penalty value for MVA conflicts")
     parser.add_argument("--conflict-penalty", type=float, required=True,
@@ -196,7 +198,7 @@ def save_checkpoint(run_name: str, agent: nn.Module, optimizer: optim.Optimizer,
 if __name__ == "__main__":
     args = parse_args()
     print(args)
-    run_name = (f"{args.exp_name}__{args.agent_type}__{args.edge_criteria}"
+    run_name = (f"{args.exp_name}__{args.agent_class}__{args.edge_criteria}__reward-{args.goal_reward}"
                 f"__penalty-{args.mva_penalty}-{args.conflict_penalty}-{args.wake_penalty}"
                 f"__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
                 )
@@ -244,9 +246,10 @@ if __name__ == "__main__":
         ParallelThreadVecEnv,
         env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
-        mva_penalty=args.mva_penalty, conflict_penalty=args.conflict_penalty,
-        wake_penalty=args.wake_penalty, init_sim=args.auto_init_sim, reset_print_period=100,
-        max_steps=args.num_steps, is_eval=False,
+        goal_reward=args.goal_reward, mva_penalty=args.mva_penalty,
+        conflict_penalty=args.conflict_penalty, wake_penalty=args.wake_penalty,
+        init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
+        is_eval=False,
     )
 
     agent = None
@@ -259,16 +262,18 @@ if __name__ == "__main__":
             envs.single_action_space, gym.spaces.MultiDiscrete
         ), "only multi-discrete action space is supported"
 
-        is_gnn_agent = args.agent_type == "gnn"
+        agent_type = ModelRegistry.get_model(args.agent_class)
+        is_gnn_agent = ModelRegistry.model_is_gnn(args.agent_class)
         if is_gnn_agent:
             agent = GNNAgent(
-                envs, 18, 2,
+                envs, 18, 2, agent_type,
                 freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
             ).to(device)
             gnn_preprocessor = GNNProcessor(args.edge_criteria)
         else:
-            agent = MLPAgent(
-                envs, freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
+            agent = Agent(
+                envs, agent_type, freeze_action=args.freeze_action_net,
+                freeze_value=args.freeze_value_net
             ).to(device)
         model_arch = agent.rep_string()
         print(model_arch)

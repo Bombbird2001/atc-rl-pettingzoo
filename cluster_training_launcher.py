@@ -42,6 +42,7 @@ if __name__ == "__main__":
             raise Exception(f"Requires {required_cores} cores for {envs_to_start} envs")
 
     # Get reward penalties to pass to simulator processes
+    goal_reward = float(get_arg("--goal-reward", script_args))
     mva_penalty = float(get_arg("--mva-penalty", script_args))
     conflict_penalty = float(get_arg("--conflict-penalty", script_args))
     wake_penalty = float(get_arg("--wake-penalty", script_args))
@@ -70,7 +71,10 @@ if __name__ == "__main__":
         taskset_args = []
         if assigned_cores:
             taskset_args.extend(["taskset", "-c", str(assigned_cores[(idx // ENVS_PER_CPU) + 1])])
-        all_args = taskset_args + sim_args + [env_id, "0", str(mva_penalty), str(conflict_penalty), str(wake_penalty)]
+        all_args = (
+                taskset_args + sim_args +
+                [env_id, "0", str(goal_reward), str(mva_penalty), str(conflict_penalty), str(wake_penalty)]
+        )
         print("Launching", " ".join(all_args))
         env_processes.append(subprocess.Popen(all_args))
 
