@@ -4,7 +4,7 @@ import signal
 import torch
 import traceback
 from envs.tc2_pettingzoo_env import make_env
-from models.aircraft_agent import Agent, GNNAgent
+from models.aircraft_agent import Agent, GNNAgent, ModelRegistry
 from common.data_preprocessing import GNNProcessor
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -28,8 +28,8 @@ def parse_args():
                         help="the number of steps to run in each environment per policy rollout")
     parser.add_argument("--model-path", type=str, default=None,
                         help="the path of the model to load")
-    parser.add_argument("--agent-type", type=str, default="gnn", choices=("mlp", "gnn"),
-                        help="agent type: mlp or gnn (must match the saved model)")
+    parser.add_argument("--agent-class", type=str, required=True,
+                        help="agent class name (must match the saved model, if any)")
     parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"], required=True,
                         help="criteria to choose which nodes to connect edges between")
     args = parser.parse_args()
@@ -56,15 +56,16 @@ if __name__ == "__main__":
         ["0"], make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
         init_sim=False, reset_print_period=50, max_steps=args.num_steps,
-        is_eval=True,
+        is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0
     )
 
-    is_gnn_agent = args.agent_type == "gnn"
+    agent_type = ModelRegistry.get_model(args.agent_class)
+    is_gnn_agent = ModelRegistry.model_is_gnn(args.agent_class)
     if is_gnn_agent:
-        agent = GNNAgent(envs, 18, 2).to(device)
+        agent = GNNAgent(envs, 18, 2, agent_type).to(device)
         gnn_preprocessor = GNNProcessor(args.edge_criteria)
     else:
-        agent = Agent(envs).to(device)
+        agent = Agent(envs, agent_type).to(device)
         gnn_preprocessor = None
 
     agent.load_state_dict(torch.load(args.model_path)['agent'])
