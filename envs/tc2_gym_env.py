@@ -85,7 +85,8 @@ class TC2GymEnv(gym.Env):
         # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, LOC cap, mask, terminated, action mask, agent ID
         # to
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
-        # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)] + ["mask", "action mask", "agent ID"]
+        # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)]
+        # + ["action mask", (ONLY ADD NEW ITEMS BEFORE MASK AND AGENT_ID) "mask", "agent ID"]
         ac_state = np.array(tmp_state[:,4:], dtype=np.float32)
         # print(ac_state[0])
         combined_ac_state = np.hstack((
@@ -95,7 +96,7 @@ class TC2GymEnv(gym.Env):
             np.sin(np.radians(ac_state[:,[8]])), np.cos(np.radians(ac_state[:,[8]])),
             (ac_state[:,[7, 9]] - np.array([0, SPD_BIAS])) / np.array([ALT_SCALE_DOWN, SPD_SCALE_DOWN]),
             ac_type_one_hot,
-            ac_state[:,[11, 13, 14]]
+            ac_state[:,[13, 11, 14]]
         ))
         # print(combined_ac_state.shape)
         return combined_ac_state
