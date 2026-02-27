@@ -38,7 +38,8 @@ class TC2GymEnv(gym.Env):
         # Actions[0] = [-45, -20, -10, 0, +10, +20, +45 degrees]
         # Actions[1] = [-3000, -1000, 0, +1000]
         # Actions[2] = [-30, -10, 0, +10 knots]
-        self.action_space = spaces.MultiDiscrete([7, 4, 4])
+        # self.action_space = spaces.MultiDiscrete([7, 4, 4])
+        self.action_space = spaces.MultiDiscrete([5, 5, 5])
 
         # [aircraft type, x, y, alt, gs, track, angular speed, vertical speed,
         # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized
