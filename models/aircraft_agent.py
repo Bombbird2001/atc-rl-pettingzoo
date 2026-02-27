@@ -26,6 +26,7 @@ class Agent(Module):
         self.actor_latent = latent_net_class()
         self.action_space_dims = envs.single_action_space.nvec
         self.actor = layer_init(Linear(64, sum(self.action_space_dims)), std=0.01)
+        self.alt_dim: int = self.action_space_dims[1]
 
         if freeze_action:
             for param in self.actor_latent.parameters():
@@ -54,7 +55,7 @@ class Agent(Module):
         logits = self.actor(hidden)
         hdg_logits, alt_logits, spd_logits = logits.split(tuple(self.action_space_dims), dim=-1)
         if alt_action_mask_int is not None:
-            mask_base = 2 ** torch.arange(3, -1, -1)
+            mask_base = 2 ** torch.arange(self.alt_dim - 1, -1, -1)
             offset = (mask_base.bitwise_and(alt_action_mask_int) == 0) * torch.finfo(torch.float32).min
             if alt_logits.shape != offset.shape:
                 raise ValueError(f"Expected alt_logits shape {alt_logits.shape} to match offset {offset.shape}")
@@ -85,6 +86,7 @@ class GNNAgent(Module):
         self.actor_latent = latent_net_class(node_feature_count, edge_feature_count)
         self.action_space_dims = envs.single_action_space.nvec
         self.actor = layer_init(Linear(64, sum(self.action_space_dims)), std=0.01)
+        self.alt_dim: int = self.action_space_dims[1]
 
         if freeze_action:
             for param in self.actor_latent.parameters():
@@ -140,7 +142,7 @@ class GNNAgent(Module):
         logits = self.actor(hidden)
         hdg_logits, alt_logits, spd_logits = logits.split(tuple(self.action_space_dims), dim=-1)
         if alt_action_mask_int is not None:
-            mask_base = 2 ** torch.arange(3, -1, -1)
+            mask_base = 2 ** torch.arange(self.alt_dim - 1, -1, -1)
             offset = (mask_base.bitwise_and(alt_action_mask_int) == 0) * torch.finfo(torch.float32).min
             if alt_logits.shape != offset.shape:
                 raise ValueError(f"Expected alt_logits shape {alt_logits.shape} to match offset {offset.shape}")
