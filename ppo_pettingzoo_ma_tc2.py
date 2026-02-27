@@ -116,7 +116,7 @@ def parse_args():
     parser.add_argument("--target-kl", type=float, default=None,
                         help="the target KL divergence threshold")
     args = parser.parse_args()
-    args.batch_size = int(args.num_envs * args.num_steps * args.max_agents)
+    args.buffer_size = int(args.num_envs * args.num_steps * args.max_agents)
     # fmt: on
     return args
 
@@ -302,12 +302,12 @@ if __name__ == "__main__":
 
         start_time = time.time()
         update = 0
-        num_updates = int(ceil(args.total_timesteps / args.batch_size))
+        num_updates = int(ceil(args.total_timesteps / args.buffer_size))
 
         if is_gnn_agent:
-            rollout_buffer = GraphRolloutBuffer(args.batch_size, device)
+            rollout_buffer = GraphRolloutBuffer(args.buffer_size, device)
         else:
-            rollout_buffer = RolloutBuffer(args.batch_size, device)
+            rollout_buffer = RolloutBuffer(args.buffer_size, device)
         reward_history_length = 30
         reward_history = deque()
         reward_history_sum = 0
@@ -460,7 +460,7 @@ if __name__ == "__main__":
                     # print(total_ac_length)
                     b_masks = masks.reshape(-1).bool()
                     # print(b_masks.sum())
-                    b_action_masks = torch.cat(action_masks, dim=0)
+                    b_action_masks = torch.cat(list(filter(lambda x: x is not None, action_masks)), dim=0)
                 else:
                     b_obs = obs.reshape((-1, obs.shape[3]))
                     b_masks = b_obs[:,-1].bool()
