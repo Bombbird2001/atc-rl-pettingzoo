@@ -169,7 +169,7 @@ class TC2GymEnv(gym.Env):
         # The next time the game loop finishes simulating max_steps frames, it will stop the update till reset() is called here
         self.steps += 1
         truncated = self.max_steps is not None and self.steps >= self.max_steps
-        if truncated and not self.is_eval:
+        if truncated:
             # print(f"Truncating={truncated}")
             self.sim_bridge.signal_reset_after_step()
 
