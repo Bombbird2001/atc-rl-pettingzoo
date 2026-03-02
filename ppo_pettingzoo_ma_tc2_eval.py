@@ -144,6 +144,7 @@ if __name__ == "__main__":
                 "wake_conflict_rate": 0,
             }
             episode_no = 0
+            total_agents = 0
 
             with tqdm(total=args.eval_episodes, unit="eps") as pbar:
                 while episode_no < args.eval_episodes or args.visualise_only:
@@ -209,6 +210,7 @@ if __name__ == "__main__":
                     avg_agent_lifespan = agent_lifespans.sum() / n_active if n_active > 0 else torch.tensor(0.0, device=device)
                     lifespan_sum += avg_agent_lifespan.item()
 
+                    total_agents += n_active
                     episode_no += num_envs
                     pbar.update(num_envs)
 
@@ -217,7 +219,7 @@ if __name__ == "__main__":
                         break
 
             if not exiting and episode_no > 0:
-                avg_reward = reward_sum / episode_no
+                avg_reward = reward_sum / total_agents if total_agents > 0 else 0
                 avg_lifespan = lifespan_sum / (episode_no // num_envs)  # iterations, each with one avg_lifespan
                 print(f"Average episode reward: {avg_reward:.3f}")
                 print(f"Average lifespan: {avg_lifespan:.3f}")
