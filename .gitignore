@@ -4,6 +4,7 @@
 *.sh
 *.cmd
 runs
+eval_runs
 wandb
 __pycache__
 slurm_out
