@@ -40,10 +40,10 @@ class GNNGatV2Net(GNNNet):
         self.node_feature_count = node_feature_count
         self.edge_feature_count = edge_feature_count
 
-        self.gat1 = GATv2Conv(node_feature_count, 32, heads=2, edge_dim=edge_feature_count)
-        self.ln1 = LayerNorm(64)
-        self.linear = layer_init(Linear(64, 64))
-        self.ln2 = LayerNorm(64)
+        self.gat1 = GATv2Conv(node_feature_count, 32, heads=4, edge_dim=edge_feature_count, residual=True)
+        self.ln1 = LayerNorm(128)
+        self.linear = layer_init(Linear(128, 128))
+        self.ln2 = LayerNorm(128)
 
     def forward(self, x, edge_index, edge_attr):
         h = self.gat1(x, edge_index, edge_attr)

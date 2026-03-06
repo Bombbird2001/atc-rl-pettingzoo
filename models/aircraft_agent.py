@@ -85,7 +85,7 @@ class GNNAgent(Module):
         super().__init__()
         self.actor_latent = latent_net_class(node_feature_count, edge_feature_count)
         self.action_space_dims = envs.single_action_space.nvec
-        self.actor = layer_init(Linear(64, sum(self.action_space_dims)), std=0.01)
+        self.actor = layer_init(Linear(128, sum(self.action_space_dims)), std=0.01)
         self.alt_dim: int = self.action_space_dims[1]
 
         if freeze_action:
@@ -96,7 +96,7 @@ class GNNAgent(Module):
 
         # Centralized GNN critic (MAPPO)
         self.value_latent = latent_net_class(node_feature_count, edge_feature_count)
-        self.critic = layer_init(Linear(64, 1), std=1)
+        self.critic = layer_init(Linear(128, 1), std=1)
 
         if freeze_value:
             for param in self.value_latent.parameters():

@@ -106,7 +106,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     num_envs = args.num_envs
 
-    env_ids = ["0"] if args.visualise_only else [f"{i}_{random.randbytes(3).hex()}" for i in range(num_envs)]
+    env_ids = [f"0_{random.randbytes(3).hex()}"] if args.visualise_only else [f"{i}_{random.randbytes(3).hex()}" for i in range(num_envs)]
 
     envs = make_vec_env(
         ParallelThreadVecEnv, env_ids, make_env,
@@ -148,6 +148,18 @@ if __name__ == "__main__":
 
             with tqdm(total=args.eval_episodes, unit="eps") as pbar:
                 while episode_no < args.eval_episodes or args.visualise_only:
+                    if args.visualise_only:
+                        reward_sum = 0
+                        lifespan_sum = 0
+                        episode_end_info = {
+                            "landing_rate": 0,
+                            "aircraft_conflict_rate": 0,
+                            "mva_conflict_rate": 0,
+                            "wake_conflict_rate": 0,
+                        }
+                        episode_no = 0
+                        total_agents = 0
+
                     # Agent lifespan tracking; shape (num_steps, num_envs, AIRCRAFT_COUNT)
                     masks = torch.zeros((args.num_steps, num_envs, AIRCRAFT_COUNT)).to(device)
 
@@ -213,6 +225,13 @@ if __name__ == "__main__":
                     total_agents += n_active
                     episode_no += num_envs
                     pbar.update(num_envs)
+
+                    if args.visualise_only:
+                        avg_reward = reward_sum / total_agents if total_agents > 0 else 0
+                        print(f"Average episode reward: {avg_reward:.3f}")
+                        print(f"Average lifespan: {lifespan_sum:.3f}")
+                        for key, value in episode_end_info.items():
+                            print(f"{key}: {value:.5f}")
 
                     if exiting:
                         print("Ctrl-C pressed")
