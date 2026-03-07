@@ -156,8 +156,8 @@ class GNNProcessor(DataProcessor):
 
         selected_edges = torch.ones(edge_index.shape[0]).bool()
         if self.needs_dist:
-            within_15nm = torch.Tensor(pos_dist <= 15 / X_Y_SCALE_DOWN).to(torch.bool)
-            selected_edges = selected_edges & within_15nm
+            within_20nm = torch.Tensor(pos_dist <= 20 / X_Y_SCALE_DOWN).to(torch.bool)
+            selected_edges = selected_edges & within_20nm
         if self.needs_alt:
             additional_range = np.array([1500, -1500]) / ALT_SCALE_DOWN
             edge_alt_0 = torch.hstack((
