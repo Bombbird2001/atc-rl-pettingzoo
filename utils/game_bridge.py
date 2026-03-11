@@ -14,10 +14,10 @@ elif os_name == "Darwin" or os_name == "Linux":
 
 class GameBridge(ABC):
     # Shared region:
-    # 12 bytes constant: [proceed flag(1 byte)] [close program flag(1 byte)] [2 bytes padding] [proportion landed(4 bytes)] [aircraft conflict time per aircraft(4 bytes)] [MVA conflict time per aircraft(4 bytes)] [Wake conflict time per aircraft(4 bytes)]
+    # 12 bytes constant: [proceed flag(1 byte)] [close program flag(1 byte)] [step count offset(1 byte)] [1 byte padding] [proportion landed(4 bytes)] [aircraft conflict time per aircraft(4 bytes)] [MVA conflict time per aircraft(4 bytes)] [Wake conflict time per aircraft(4 bytes)]
     # 6 bytes per instruction: [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [validity(1 byte)] [1 byte padding]
     # + 56 bytes per aircraft: [reward(4 bytes)] [state(47 bytes (4x chars, 7x floats, 3x ints, 4x byte (for locCap, validity, terminated, altitude action masking)))] [1x byte (agent ID)] [3 bytes padding]
-    CONSTANT_FORMAT = "bbxxffff"
+    CONSTANT_FORMAT = "bbbxffff"
     CONSTANT_SIZE = 20
     PER_INSTRUCTION_FORMAT = "hbbbx"
     PER_INSTRUCTION_SIZE = 6

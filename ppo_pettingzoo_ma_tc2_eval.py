@@ -135,7 +135,7 @@ if __name__ == "__main__":
                 print(f"Agent loaded from {model_path}")
 
             # Metrics tracker (per model)
-            reward_sum = 0
+            reward_sum = 0.0
             lifespan_sum = 0
             episode_end_info = {
                 "landing_rate": 0,
@@ -144,12 +144,15 @@ if __name__ == "__main__":
                 "wake_conflict_rate": 0,
             }
             episode_no = 0
+            times_added = 0
             total_agents = 0
+            env_valid_steps = None
+            raw_step = None
 
             with tqdm(total=args.eval_episodes, unit="eps") as pbar:
                 while episode_no < args.eval_episodes or args.visualise_only:
                     if args.visualise_only:
-                        reward_sum = 0
+                        reward_sum = 0.0
                         lifespan_sum = 0
                         episode_end_info = {
                             "landing_rate": 0,
@@ -158,23 +161,41 @@ if __name__ == "__main__":
                             "wake_conflict_rate": 0,
                         }
                         episode_no = 0
+                        times_added = 0
                         total_agents = 0
 
-                    # Agent lifespan tracking; shape (num_steps, num_envs, AIRCRAFT_COUNT)
+                    # Agent lifespan tracking; indexed by logical step (0..args.num_steps-1) per env
                     masks = torch.zeros((args.num_steps, num_envs, AIRCRAFT_COUNT)).to(device)
 
                     # Start the game
+                    # print("Waiting reset")
+                    # if env_valid_steps is not None:
+                    #     print(f"Before reset - Raw step: {raw_step}, env steps: {env_valid_steps}")
                     next_obs, _ = envs.reset(seed=args.seed)
+                    # print("Reset done")
                     ac_mask = torch.IntTensor(next_obs[:, :, -1]).to(device)
                     if is_gnn_agent:
                         next_obs = _tensor_to_graph(next_obs, gnn_preprocessor, device, num_envs)
                     else:
                         next_obs = torch.Tensor(next_obs).to(device)
 
-                    for step in range(0, args.num_steps):
-                        masks[step] = ac_mask
+                    # We may run "extra" internal env steps for conflict-resolution simulation.
+                    # We index stats by logical step per env and control inclusion via masks.
+                    rewards = torch.zeros((args.num_steps, num_envs, AIRCRAFT_COUNT), device=device)
+                    # Per-(logical_step, env) validity mask for metrics (reward, etc.)
+                    step_valid = torch.zeros((args.num_steps, num_envs), dtype=torch.bool, device=device)
+                    # Per-environment count of valid logical steps recorded so far
+                    env_valid_steps = torch.zeros(num_envs, dtype=torch.int, device=device)
 
+                    raw_step = 0
+                    raw_step_limit = args.num_steps * 5  # allow extra sim steps; defensive cap
+                    # Continue when there is at least one non-terminated env with < args.num_steps valid steps
+                    terminated_envs = torch.zeros(num_envs, dtype=torch.bool, device=device)
+                    while ((env_valid_steps < args.num_steps) & ~terminated_envs).any().item():
                         # ALGO LOGIC: action logic
+                        if raw_step >= raw_step_limit:
+                            print(f"Warning: raw_step exceeded cap ({raw_step_limit}); breaking episode early")
+                            break
                         with torch.no_grad():
                             if is_gnn_agent:
                                 action, _, _, _ = agent.get_action_and_value(next_obs, ac_mask, use_mode=True)
@@ -185,7 +206,42 @@ if __name__ == "__main__":
                             next_obs, reward, termination, truncation, infos = envs.step(
                                 torch.cat((action, ac_mask.unsqueeze(-1)), dim=-1).cpu().numpy()
                             )
-                            reward_sum += reward.sum().item()
+
+                            # Handle step count offsets (for conflict avoidance simulation)
+                            # Per-environment semantics:
+                            # - new_step_count == 1: normal logical step for that env (record stats at current effective_step)
+                            # - new_step_count == 0: sim step for that env (ignore for metrics)
+                            # - new_step_count < 0: ignore the last |new_step_count| logical rows for that env in metrics
+                            step_offsets = [info_dict[0].get("step_offset", 0) if 0 in info_dict else -1 for info_dict in infos]
+                            new_step_counts = [1 + step_offset for step_offset in step_offsets]
+
+                            # For environments with negative offset, invalidate last |new_step_count| logical steps for that env
+                            for env_idx_i, nsc in enumerate(new_step_counts):
+                                if nsc < 0:
+                                    reset_len = abs(nsc)
+                                    end = env_valid_steps[env_idx_i].item()
+                                    start = max(end - reset_len, 0)
+                                    if end > 0 and start < end:
+                                        step_valid[start:end, env_idx_i] = False
+                                        env_valid_steps[env_idx_i] = max(
+                                            env_valid_steps[env_idx_i] - (end - start),
+                                            torch.tensor(0, device=device),
+                                        )
+
+                            # If at least one environment has new_step_count == 1 AND still needs steps,
+                            # we record stats for those envs at their current logical step index.
+                            for env_idx_i, nsc in enumerate(new_step_counts):
+                                if nsc == 1 and env_valid_steps[env_idx_i] < args.num_steps:
+                                    step_idx = env_valid_steps[env_idx_i].item()
+                                    masks[step_idx, env_idx_i] = ac_mask[env_idx_i]
+                                    rewards[step_idx, env_idx_i] = torch.tensor(
+                                        reward[env_idx_i], device=device
+                                    )
+                                    step_valid[step_idx, env_idx_i] = True
+                                    env_valid_steps[env_idx_i] += 1
+
+                            # if truncation.any():
+                            #     print("Truncating at", env_valid_steps)
 
                             ac_mask = torch.IntTensor(next_obs[:, :, -1]).to(device)
                             if is_gnn_agent:
@@ -200,9 +256,14 @@ if __name__ == "__main__":
                             next_active_agents = ac_mask - next_termination
                             terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
                             terminate = False
-                            for env_idx in torch.where(terminating_envs)[0]:
+                            for env_idx in torch.where(terminating_envs | ((env_valid_steps >= args.num_steps) & ~terminated_envs))[0]:
+                                # print("Early resetting env", env_idx.item())
                                 envs.early_reset(env_idx.item(), args.seed)
+                                terminated_envs[env_idx] = True
+                                times_added += 1
                                 for key, value in infos[env_idx.item()][0].items():
+                                    if key == "step_offset":
+                                        continue
                                     episode_end_info[key] += value
                                 if next_active_agents.sum().item() == 0:
                                     # All agents terminated, exit the step loop early
@@ -211,12 +272,27 @@ if __name__ == "__main__":
                             if terminate or exiting:
                                 break
 
+                        raw_step += 1
+                        if exiting:
+                            break
+
+                    # Accumulate per-episode reward based only on valid (logical_step, env) entries
+                    if step_valid.any():
+                        step_env_rewards = rewards.sum(dim=-1)  # (steps, envs)
+                        valid_rewards = step_env_rewards[step_valid]
+                        reward_sum += valid_rewards.sum().item()
+
                     # Aggregate episode_end_info from all envs (like training script)
-                    for env_idx in torch.where(next_active_agents.sum(dim=-1) > 0)[0]:
+                    for env_idx in torch.where(~terminated_envs)[0]:
+                        times_added += 1
                         for key, value in infos[env_idx.item()][0].items():
+                            if key == "step_offset":
+                                continue
                             episode_end_info[key] += value
 
-                    active_mask = masks.bool()  # (num_steps, num_envs, AIRCRAFT_COUNT)
+                    # Lifespans based on valid (logical_step, env) entries
+                    active_mask = masks.bool() & step_valid.unsqueeze(-1)  # (steps, num_envs, AIRCRAFT_COUNT)
+                    # If an aircraft is still active at the final step, treat its lifespan as full horizon
                     agent_lifespans = torch.where(active_mask[-1, :, :], active_mask.shape[0], active_mask.sum(dim=0))
                     n_active = (agent_lifespans > 0).sum().item()
                     avg_agent_lifespan = agent_lifespans.sum() / n_active if n_active > 0 else torch.tensor(0.0, device=device)
@@ -224,10 +300,12 @@ if __name__ == "__main__":
 
                     total_agents += n_active
                     episode_no += num_envs
+                    if episode_no != times_added:
+                        print(f"Episodes: {episode_no}, times added: {times_added}")
                     pbar.update(num_envs)
 
                     if args.visualise_only:
-                        avg_reward = reward_sum / total_agents if total_agents > 0 else 0
+                        avg_reward = (reward_sum / total_agents) if total_agents > 0 else 0
                         print(f"Average episode reward: {avg_reward:.3f}")
                         print(f"Average lifespan: {lifespan_sum:.3f}")
                         for key, value in episode_end_info.items():
@@ -238,7 +316,8 @@ if __name__ == "__main__":
                         break
 
             if not exiting and episode_no > 0:
-                avg_reward = reward_sum / total_agents if total_agents > 0 else 0
+                print(f"Episodes: {episode_no}, times added: {times_added}")
+                avg_reward = (reward_sum / total_agents) if total_agents > 0 else 0
                 avg_lifespan = lifespan_sum / (episode_no // num_envs)  # iterations, each with one avg_lifespan
                 print(f"Average episode reward: {avg_reward:.3f}")
                 print(f"Average lifespan: {avg_lifespan:.3f}")

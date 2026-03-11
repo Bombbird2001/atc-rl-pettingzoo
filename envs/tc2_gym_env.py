@@ -59,6 +59,8 @@ class TC2GymEnv(gym.Env):
         self.episode = 0
         self.steps = 0
         self.max_steps = max_steps
+        self.raw_steps = 0
+        self.max_raw_steps = max_steps * 5
         self.terminated_count = 0
         self.render_mode = render_mode
 
@@ -120,6 +122,7 @@ class TC2GymEnv(gym.Env):
             self.signalled_ready = True
 
         # Send reset signal to simulator
+        # print(f"[{self.instance_name}] Resetting")
         self.sim_bridge.signal_reset_sim()
         # Wait for simulator to signal ready for next action
         if self.episode % self.reset_print_period == 0:
@@ -135,7 +138,9 @@ class TC2GymEnv(gym.Env):
                 # print(action_top_k.indices)
                 # print(action_top_k.values / len(self.action_dist))
             self.action_dist.clear()
+        # print(f"[{self.instance_name}] Waiting reset ready")
         self.sim_bridge.wait_action_ready()
+        # print(f"[{self.instance_name}] Reset action ready")
 
         # Get state from shared memory
         values = self.sim_bridge.get_aircraft_state()
@@ -150,6 +155,7 @@ class TC2GymEnv(gym.Env):
 
         self.episode += 1
         self.steps = 0
+        self.raw_steps = 0
         return obs, info
 
     def step(self, action):
@@ -165,12 +171,15 @@ class TC2GymEnv(gym.Env):
         # Write action to shared memory and signal
         self.sim_bridge.write_actions(action)
 
-        # Set the reset request flag before signalling action done
+        # Set the reset request flag before signaling action done
         # The next time the game loop finishes simulating max_steps frames, it will stop the update till reset() is called here
-        self.steps += 1
-        truncated = self.max_steps is not None and self.steps >= self.max_steps
+        # Handle step count offset (for conflict avoidance algorithm)
+        self.steps += 1 + values[2]
+        self.raw_steps += 1
+        truncated = ((self.max_steps is not None and self.steps >= self.max_steps)
+                     or (self.max_raw_steps is not None and self.raw_steps >= self.max_raw_steps))
         if truncated:
-            # print(f"Truncating={truncated}")
+            # print(f"Truncating {self.instance_name} - steps: {self.steps}, raw_steps: {self.raw_steps}")
             self.sim_bridge.signal_reset_after_step()
 
         # print(int(time.time() * 1000), "Signalled action done")
@@ -184,7 +193,7 @@ class TC2GymEnv(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        aircraft_state = values[6 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
+        aircraft_state = values[7 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
@@ -192,10 +201,11 @@ class TC2GymEnv(gym.Env):
             self.terminated_count += 1
 
         info = {
-            'landing_rate': values[2],
-            'aircraft_conflict_rate': values[3],
-            'mva_conflict_rate': values[4],
-            'wake_conflict_rate': values[5],
+            'step_offset': values[2],
+            'landing_rate': values[3],
+            'aircraft_conflict_rate': values[4],
+            'mva_conflict_rate': values[5],
+            'wake_conflict_rate': values[6],
         }
 
         return obs, reward, terminated, truncated, info

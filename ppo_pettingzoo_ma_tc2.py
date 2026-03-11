@@ -400,6 +400,8 @@ if __name__ == "__main__":
                     for env_idx in torch.where(terminating_envs)[0]:
                         envs.early_reset(env_idx.item(), args.seed)
                         for key, value in infos[env_idx.item()][0].items():
+                            if key == "step_offset":
+                                continue
                             episode_end_info[key] += value
                         if next_active_agents.sum().item() == 0:
                             # All agents terminated, exit the step loop early
@@ -410,6 +412,8 @@ if __name__ == "__main__":
 
                 for env_idx in torch.where(next_active_agents.sum(dim=-1) > 0)[0]:
                     for key, value in infos[env_idx.item()][0].items():
+                        if key == "step_offset":
+                            continue
                         episode_end_info[key] += value
 
                 with torch.no_grad():
