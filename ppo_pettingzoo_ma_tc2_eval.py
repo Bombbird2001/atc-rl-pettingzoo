@@ -194,7 +194,7 @@ if __name__ == "__main__":
                     while ((env_valid_steps < args.num_steps) & ~terminated_envs).any().item():
                         # ALGO LOGIC: action logic
                         if raw_step >= raw_step_limit:
-                            print(f"Warning: raw_step exceeded cap ({raw_step_limit}); breaking episode early")
+                            print(f"Warning: raw_step exceeded cap ({raw_step_limit}); breaking episode early with termination status {terminated_envs}")
                             break
                         with torch.no_grad():
                             if is_gnn_agent:
