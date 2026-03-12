@@ -208,7 +208,7 @@ if __name__ == "__main__":
     print(args)
     run_name = (f"{args.exp_name}__{args.agent_class}__{args.edge_criteria}__reward-{args.goal_reward}"
                 f"__penalty-{args.mva_penalty}-{args.conflict_penalty}-{args.wake_penalty}__lr-{args.learning_rate}"
-                f"__min-lr-{args.min_lr}__batch-{args.minibatch_size}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
+                f"__min-lr-{args.min_lr}__batch-{args.minibatch_size}__ent-coef-{args.ent_coef}__gamma-{args.gamma}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
                 )
     run = None
 
