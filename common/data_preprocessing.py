@@ -47,44 +47,23 @@ AC_FAMILY_MAPPING = {
 }
 
 
-RECAT_MAPPING = {
-    "B737": "D",
-    "B738": "D",
-    "B739": "D",
-    "A359": "B",
-    "A35K": "B",
-    "B752": "C",
-    "B772": "B",
-    "B773": "B",
-    "B77W": "B",
-    "B77L": "B",
-    "B788": "B",
-    "B789": "B",
-    "B78X": "B",
-    "A319": "D",
-    "A320": "D",
-    "A321": "D",
-    "A21N": "D",
-    "A20N": "D",
-    "B744": "B",
-    "B748": "B",
-    "A388": "A",
-    "A333": "B",
-    "A332": "B",
-    "A339": "B",
-    "B733": "E",
-    "B734": "E",
-    "B763": "C",
-    "B38M": "D",
-    "E290": "D",
-    "E295": "D",
-    "GLF4": "E",
-    "GLF6": "E",
-    "GLEX": "E",
-    "FA8X": "E",
-    "CL60": "E",
-    None: "Unknown",
-}
+def load_recat_mapping(filename):
+    """
+    Reads aircraft information file and maps the ICAO code to the RECAT category
+    """
+    mapping = {}
+    with open(filename, 'r') as file:
+        for line in file:
+            parts = line.split()
+
+            if len(parts) >= 3:
+                mapping[parts[0]] = parts[2]
+            else:
+                raise ValueError(f"Expected row {line} to have at least 3 columns")
+    return mapping
+
+
+RECAT_MAPPING = load_recat_mapping("common/aircraft.perf")
 
 
 class DataProcessor(ABC):

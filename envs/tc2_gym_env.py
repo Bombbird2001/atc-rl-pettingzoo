@@ -8,13 +8,15 @@ import subprocess
 import torch
 from common.constants import AIRCRAFT_COUNT, SPD_BIAS, SPD_SCALE_DOWN, \
     TRACK_RATE_SCALE_DOWN, X_Y_SCALE_DOWN, PX_PER_NM, ALT_SCALE_DOWN, \
-    ALT_RATE_SCALE_DOWN, ALT_BIAS
+    ALT_RATE_SCALE_DOWN, ALT_BIAS, APP_SPD_BIAS, APP_SPD_SCALE_DOWN
 from common.data_preprocessing import RECAT_MAPPING
 from gymnasium import spaces
 from sklearn.preprocessing import OneHotEncoder
 from utils.game_bridge import GameBridge
 
 
+OBS_SPACE_DIMENSION = 21
+NODE_FEATURE_DIMENSION = OBS_SPACE_DIMENSION - 2
 SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 
@@ -45,7 +47,7 @@ class TC2GymEnv(gym.Env):
         # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized
         # +1 for aircraft masking
         # +1 for action masking
-        self.OBS_SPACE_DIMENSION = 20
+        self.OBS_SPACE_DIMENSION = OBS_SPACE_DIMENSION
         self.observation_space = spaces.Box(
             low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION),
             high=np.repeat(1.0, self.OBS_SPACE_DIMENSION),
@@ -85,10 +87,10 @@ class TC2GymEnv(gym.Env):
         ac_types = [[RECAT_MAPPING.get(ac_type, "Unknown")] for ac_type in (ac_types[:,0] + ac_types[:,1] + ac_types[:,2] + ac_types[:,3])]
         ac_type_one_hot = self.ac_type_one_hot_encoder.transform(ac_types).toarray()
         # Map
-        # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, LOC cap, mask, terminated, action mask, agent ID
+        # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, approach IAS, LOC cap, mask, terminated, action mask, agent ID
         # to
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
-        # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)]
+        # "prev_cleared_alt", "prev_cleared_ias", "approach speed"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)]
         # + ["action mask", (ONLY ADD NEW ITEMS BEFORE MASK AND AGENT_ID) "mask", "agent ID"]
         ac_state = np.array(tmp_state[:,4:], dtype=np.float32)
         # print(ac_state[0])
@@ -97,9 +99,9 @@ class TC2GymEnv(gym.Env):
             / np.array([SPD_SCALE_DOWN, TRACK_RATE_SCALE_DOWN, X_Y_SCALE_DOWN * PX_PER_NM, X_Y_SCALE_DOWN * PX_PER_NM, ALT_SCALE_DOWN, ALT_RATE_SCALE_DOWN]),
             np.sin(np.radians(ac_state[:,[4]])), np.cos(np.radians(ac_state[:,[4]])),
             np.sin(np.radians(ac_state[:,[8]])), np.cos(np.radians(ac_state[:,[8]])),
-            (ac_state[:,[7, 9]] - np.array([0, SPD_BIAS])) / np.array([ALT_SCALE_DOWN, SPD_SCALE_DOWN]),
+            (ac_state[:,[7, 9, 10]] - np.array([0, SPD_BIAS, APP_SPD_BIAS])) / np.array([ALT_SCALE_DOWN, SPD_SCALE_DOWN, APP_SPD_SCALE_DOWN]),
             ac_type_one_hot,
-            ac_state[:,[13, 11, 14]]
+            ac_state[:,[14, 12, 15]]
         ))
         # print(combined_ac_state.shape)
         return combined_ac_state
@@ -107,12 +109,12 @@ class TC2GymEnv(gym.Env):
     @staticmethod
     def _get_rewards_from_aircraft_state(aircraft_state) -> np.ndarray:
         # Also include agent ID for PettingZoo env
-        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[0, 16, 19]].astype(np.float32)
+        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[0, 17, 20]].astype(np.float32)
 
     @staticmethod
     def _get_terminated_from_aircraft_state(aircraft_state) -> np.ndarray:
         # Also include agent ID for PettingZoo env
-        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[17, 16, 19]].astype(np.int32)
+        return np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)[:,[18, 17, 20]].astype(np.int32)
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)

@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
     envs = make_vec_env(
         ParallelThreadVecEnv, env_ids, make_env,
-        ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
+        ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
         init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)), max_steps=args.num_steps,
         is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0
     )

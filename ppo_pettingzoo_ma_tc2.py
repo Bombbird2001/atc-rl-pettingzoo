@@ -24,6 +24,7 @@ from collections import deque
 from common.constants import AIRCRAFT_COUNT
 from common.data_preprocessing import GNNProcessor
 from datetime import datetime
+from envs.tc2_gym_env import NODE_FEATURE_DIMENSION
 from envs.tc2_pettingzoo_env import make_env
 from math import ceil
 from models.aircraft_agent import Agent, GNNAgent, ModelRegistry
@@ -203,6 +204,10 @@ def save_checkpoint(run_name: str, agent: nn.Module, optimizer: optim.Optimizer,
     torch.save(checkpoint, model_path)
 
 
+NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
+EDGE_FEATURE_DIM = 2
+
+
 if __name__ == "__main__":
     args = parse_args()
     print(args)
@@ -253,7 +258,7 @@ if __name__ == "__main__":
     envs = make_vec_env(
         ParallelThreadVecEnv,
         env_ids, make_env,
-        ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder.joblib"),
+        ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
         goal_reward=args.goal_reward, mva_penalty=args.mva_penalty,
         conflict_penalty=args.conflict_penalty, wake_penalty=args.wake_penalty,
         init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
@@ -274,7 +279,7 @@ if __name__ == "__main__":
         is_gnn_agent = ModelRegistry.model_is_gnn(args.agent_class)
         if is_gnn_agent:
             agent = GNNAgent(
-                envs, 18, 2, agent_type,
+                envs, NODE_FEATURE_DIM, EDGE_FEATURE_DIM, agent_type,
                 freeze_action=args.freeze_action_net, freeze_value=args.freeze_value_net
             ).to(device)
             gnn_preprocessor = GNNProcessor(args.edge_criteria)
