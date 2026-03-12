@@ -125,6 +125,7 @@ if __name__ == "__main__":
         gnn_preprocessor = None
 
     signal.signal(signal.SIGINT, signal_handler)
+    log_step = 0
     try:
         model_iter = tqdm(model_list, unit="model", disable=len(model_list) <= 1) if not args.visualise_only else model_list
         for step_x, model_path in model_iter:
@@ -325,14 +326,15 @@ if __name__ == "__main__":
                     print(f"{key}: {value / episode_no:.5f}")
 
                 if args.track and run is not None:
-                    global_step = step_x if step_x is not None else 0
                     log_dict = {
                         "episode/average_agent_reward": avg_reward,
                         "episode/average_agent_lifespan": avg_lifespan,
                     }
                     for key, value in episode_end_info.items():
                         log_dict[f"metrics/{key}"] = value / episode_no
-                    run.log(log_dict, step=global_step)
+                    run.log(log_dict, step=log_step)
+
+            log_step += 1
 
             if exiting:
                 break
