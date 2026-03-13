@@ -351,8 +351,12 @@ if __name__ == "__main__":
                 values = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT)).to(device)
                 episode_end_info = {
                     'landing_rate': 0,
-                    'aircraft_conflict_rate': 0,
+                    'aircraft_conflict_rate_no_loc': 0,
                     'mva_conflict_rate': 0,
+                    'wake_conflict_rate_no_loc': 0,
+                    'aircraft_conflict_rate_loc': 0,
+                    'wake_conflict_rate_loc': 0,
+                    'aircraft_conflict_rate': 0,
                     'wake_conflict_rate': 0,
                 }
 

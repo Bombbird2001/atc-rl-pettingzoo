@@ -8,6 +8,7 @@ import torch
 import traceback
 from common.constants import AIRCRAFT_COUNT
 from common.data_preprocessing import GNNProcessor
+from envs.tc2_gym_env import NODE_FEATURE_DIMENSION
 from envs.tc2_pettingzoo_env import make_env
 from math import ceil
 from models.aircraft_agent import Agent, GNNAgent, ModelRegistry
@@ -40,6 +41,10 @@ def parse_args():
                         help="the path of the model to load (single model evaluation)")
     parser.add_argument("--model-folder", type=str, default=None,
                         help="folder to iterate agent_0.pt, agent_1.pt, ... and run evaluation for each; ignored if --model-path is set")
+    parser.add_argument("--model-folder-start", type=int, default=1,
+                        help="starts iterating through model-folder from agent_XX.pt, defaults to 1 (the first model); ignored if --model-path is set")
+    parser.add_argument("--model-folder-end", type=int, default=None,
+                        help="stop iterating through model-folder at agent_XX.pt (inclusive); ignored if --model-path is set")
     parser.add_argument("--agent-class", type=str, required=True,
                         help="agent class name (must match the saved model, if any)")
     parser.add_argument("--edge-criteria", type=str, choices=["fc", "dist_only", "dist_and_alt", "self_only"], required=True,
@@ -60,7 +65,7 @@ def parse_args():
     return args
 
 
-def _discover_agent_checkpoints(folder: str):
+def _discover_agent_checkpoints(folder: str, start: int, end: int | None):
     """Return list of (x, path) for agent_x.pt with x integer >= 0, sorted by x."""
     pattern = re.compile(r"^agent_(\d+)\.pt$")
     out = []
@@ -68,6 +73,8 @@ def _discover_agent_checkpoints(folder: str):
         m = pattern.match(name)
         if m:
             x = int(m.group(1))
+            if x < start or end is not None and x > end:
+                continue
             out.append((x, os.path.join(folder, name)))
     return sorted(out, key=lambda p: p[0])
 
@@ -80,6 +87,23 @@ def _tensor_to_graph(obs: torch.Tensor, gnn_preprocessor: GNNProcessor, device: 
     return next(iter(DataLoader(input_graphs, batch_size=num_envs))).to(device)
 
 
+def reset_episode_counters():
+    return {
+        "landing_rate": 0,
+        "aircraft_conflict_rate_no_loc": 0,
+        "mva_conflict_rate": 0,
+        "wake_conflict_rate_no_loc": 0,
+        "aircraft_conflict_rate_loc": 0,
+        "wake_conflict_rate_loc": 0,
+        "aircraft_conflict_rate": 0,
+        "wake_conflict_rate": 0,
+    }
+
+
+NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
+EDGE_FEATURE_DIM = 2
+
+
 if __name__ == "__main__":
     args = parse_args()
     print(args)
@@ -87,9 +111,10 @@ if __name__ == "__main__":
     if args.model_path is not None:
         model_list = [(None, args.model_path)]
     elif args.model_folder is not None:
-        model_list = _discover_agent_checkpoints(args.model_folder)
+        model_list = _discover_agent_checkpoints(args.model_folder, args.model_folder_start, args.model_folder_end)
         if not model_list:
-            raise FileNotFoundError(f"No agent_<x>.pt files found in {args.model_folder}")
+            raise FileNotFoundError(f"No agent_<x>.pt files found in {args.model_folder} for start={args.model_folder_start}, end={args.model_folder_end}")
+        print(model_list)
     else:
         raise ValueError("One of --model-path or --model-folder is required")
 
@@ -118,7 +143,7 @@ if __name__ == "__main__":
     agent_type = ModelRegistry.get_model(args.agent_class)
     is_gnn_agent = ModelRegistry.model_is_gnn(args.agent_class)
     if is_gnn_agent:
-        agent = GNNAgent(envs, 18, 2, agent_type).to(device)
+        agent = GNNAgent(envs, NODE_FEATURE_DIM, EDGE_FEATURE_DIM, agent_type).to(device)
         gnn_preprocessor = GNNProcessor(args.edge_criteria)
     else:
         agent = Agent(envs, agent_type).to(device)
@@ -138,12 +163,7 @@ if __name__ == "__main__":
             # Metrics tracker (per model)
             reward_sum = 0.0
             lifespan_sum = 0
-            episode_end_info = {
-                "landing_rate": 0,
-                "aircraft_conflict_rate": 0,
-                "mva_conflict_rate": 0,
-                "wake_conflict_rate": 0,
-            }
+            episode_end_info = reset_episode_counters()
             episode_no = 0
             times_added = 0
             total_agents = 0
@@ -155,12 +175,7 @@ if __name__ == "__main__":
                     if args.visualise_only:
                         reward_sum = 0.0
                         lifespan_sum = 0
-                        episode_end_info = {
-                            "landing_rate": 0,
-                            "aircraft_conflict_rate": 0,
-                            "mva_conflict_rate": 0,
-                            "wake_conflict_rate": 0,
-                        }
+                        episode_end_info = reset_episode_counters()
                         episode_no = 0
                         times_added = 0
                         total_agents = 0
