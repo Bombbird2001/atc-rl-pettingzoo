@@ -90,7 +90,7 @@ class TC2GymEnv(gym.Env):
         # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, approach IAS, LOC cap, mask, terminated, action mask, agent ID
         # to
         # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
-        # "prev_cleared_alt", "prev_cleared_ias", "approach speed"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)]
+        # "prev_cleared_alt", "prev_cleared_ias", "approach speed"] + aircraft_recat_one_hot
         # + ["action mask", (ONLY ADD NEW ITEMS BEFORE MASK AND AGENT_ID) "mask", "agent ID"]
         ac_state = np.array(tmp_state[:,4:], dtype=np.float32)
         # print(ac_state[0])
