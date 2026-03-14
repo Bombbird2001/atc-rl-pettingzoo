@@ -24,7 +24,7 @@ class TC2GymEnv(gym.Env):
     def __init__(
             self, ac_type_one_hot_encoder: OneHotEncoder, goal_reward: float, mva_penalty: float,
             conflict_penalty: float, wake_penalty: float, is_eval=False, render_mode=None,
-            reset_print_period=50, env_id="", init_sim=True, max_steps=300
+            reset_print_period=50, env_id="", init_sim=True, max_steps=300, raw_step_extra=0,
     ):
         super().__init__()
 
@@ -62,7 +62,7 @@ class TC2GymEnv(gym.Env):
         self.steps = 0
         self.max_steps = max_steps
         self.raw_steps = 0
-        self.max_raw_steps = max_steps * 5
+        self.max_raw_steps = max_steps + raw_step_extra
         self.terminated_count = 0
         self.render_mode = render_mode
 

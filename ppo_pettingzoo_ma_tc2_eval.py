@@ -102,6 +102,7 @@ def reset_episode_counters():
 
 NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
 EDGE_FEATURE_DIM = 2
+RAW_STEP_EXTRA = 2400
 
 
 if __name__ == "__main__":
@@ -137,7 +138,7 @@ if __name__ == "__main__":
         ParallelThreadVecEnv, env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
         init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)), max_steps=args.num_steps,
-        is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0
+        is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0, raw_step_extra=RAW_STEP_EXTRA,
     )
 
     agent_type = ModelRegistry.get_model(args.agent_class)
@@ -204,7 +205,7 @@ if __name__ == "__main__":
                     env_valid_steps = torch.zeros(num_envs, dtype=torch.int, device=device)
 
                     raw_step = 0
-                    raw_step_limit = args.num_steps * 5  # allow extra sim steps; defensive cap
+                    raw_step_limit = args.num_steps + RAW_STEP_EXTRA  # allow extra sim steps; defensive cap
                     # Continue when there is at least one non-terminated env with < args.num_steps valid steps
                     terminated_envs = torch.zeros(num_envs, dtype=torch.bool, device=device)
                     while ((env_valid_steps < args.num_steps) & ~terminated_envs).any().item():
