@@ -46,6 +46,7 @@ if __name__ == "__main__":
     mva_penalty = float(get_arg("--mva-penalty", script_args))
     conflict_penalty = float(get_arg("--conflict-penalty", script_args))
     wake_penalty = float(get_arg("--wake-penalty", script_args))
+    random_spawn_chance = float(get_arg("--random-spawn-chance", script_args))
 
     # Start trainer process first, pin to first core if possible
     env_ids = [f"{env_no}_{random.randbytes(3).hex()}" for env_no in range(envs_to_start)]
@@ -73,7 +74,10 @@ if __name__ == "__main__":
             taskset_args.extend(["taskset", "-c", str(assigned_cores[(idx // ENVS_PER_CPU) + 1])])
         all_args = (
                 taskset_args + sim_args +
-                [env_id, "0", str(goal_reward), str(mva_penalty), str(conflict_penalty), str(wake_penalty)]
+                [
+                    env_id, "0", str(goal_reward), str(mva_penalty), str(conflict_penalty),
+                    str(wake_penalty), str(random_spawn_chance)
+                ]
         )
         print("Launching", " ".join(all_args))
         env_processes.append(subprocess.Popen(all_args))

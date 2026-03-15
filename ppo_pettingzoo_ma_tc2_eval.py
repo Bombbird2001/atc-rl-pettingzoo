@@ -27,6 +27,8 @@ def signal_handler(sig, frame):
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--random-spawn-chance", type=float, default=0,
+                        help="the probability of spawning at random heading from airport")
     parser.add_argument("--seed", type=int, default=777,
                         help="seed of the experiment")
     parser.add_argument("--torch-deterministic", action=argparse.BooleanOptionalAction, default=True,
@@ -138,7 +140,8 @@ if __name__ == "__main__":
         ParallelThreadVecEnv, env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
         init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)), max_steps=args.num_steps,
-        is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0, raw_step_extra=RAW_STEP_EXTRA,
+        is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance,
+        raw_step_extra=RAW_STEP_EXTRA
     )
 
     agent_type = ModelRegistry.get_model(args.agent_class)

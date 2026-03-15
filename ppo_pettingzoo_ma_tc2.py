@@ -78,6 +78,8 @@ def parse_args():
                         help="the penalty value for aircraft conflicts")
     parser.add_argument("--wake-penalty", type=float, required=True,
                         help="the penalty value for wake conflicts")
+    parser.add_argument("--random-spawn-chance", type=float, default=0,
+                        help="the probability of spawning at random heading from airport")
 
     # Algorithm specific arguments
     parser.add_argument("--total-timesteps", type=int, required=True,
@@ -215,6 +217,7 @@ if __name__ == "__main__":
                 f"__penalty-{args.mva_penalty}-{args.conflict_penalty}-{args.wake_penalty}__lr-{args.learning_rate}"
                 f"__min-lr-{args.min_lr}__batch-{args.minibatch_size}__ent-coef-{args.ent_coef}__gamma-{args.gamma}__{args.seed}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
                 )
+    save_name = f"{args.exp_name}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
     run = None
 
     env_ids = args.env_ids
@@ -238,7 +241,7 @@ if __name__ == "__main__":
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"runs/{save_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s"
@@ -261,8 +264,8 @@ if __name__ == "__main__":
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
         goal_reward=args.goal_reward, mva_penalty=args.mva_penalty,
         conflict_penalty=args.conflict_penalty, wake_penalty=args.wake_penalty,
-        init_sim=args.auto_init_sim, reset_print_period=100, max_steps=args.num_steps,
-        is_eval=False,
+        random_spawn_chance=args.random_spawn_chance, init_sim=args.auto_init_sim,
+        reset_print_period=100, max_steps=args.num_steps, is_eval=False,
     )
 
     agent = None
@@ -604,7 +607,7 @@ if __name__ == "__main__":
 
                     curr_save_count = global_step // args.save_interval
                     if curr_save_count > last_save_count:
-                        save_checkpoint(run_name, agent, optimizer, curr_save_count)
+                        save_checkpoint(save_name, agent, optimizer, curr_save_count)
                         last_save_count = curr_save_count
 
                     # TRY NOT TO MODIFY: record rewards for plotting purposes
@@ -673,7 +676,7 @@ if __name__ == "__main__":
         print(f"Exited training in {time.time() - start_time:.2f}s")
     finally:
         if agent is not None and optimizer is not None:
-            save_checkpoint(run_name, agent, optimizer, last_save_count + 1)
+            save_checkpoint(save_name, agent, optimizer, last_save_count + 1)
         print("Exiting and cleaning up")
         envs.close()
         writer.close()
