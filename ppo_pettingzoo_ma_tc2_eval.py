@@ -27,6 +27,8 @@ def signal_handler(sig, frame):
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--exp-name", type=str, required=True,
+                        help="the name of this experiment")
     parser.add_argument("--random-spawn-chance", type=float, default=0,
                         help="the probability of spawning at random heading from airport")
     parser.add_argument("--seed", type=int, default=777,
@@ -99,12 +101,26 @@ def reset_episode_counters():
         "wake_conflict_rate_loc": 0,
         "aircraft_conflict_rate": 0,
         "wake_conflict_rate": 0,
+        'aircraft_conflict_rate_no_loc_before_res': 0,
+        'aircraft_conflict_rate_loc_before_res': 0,
+        'aircraft_conflict_rate_before_res': 0,
+        'mva_conflict_rate_before_res': 0,
+        'wake_conflict_rate_no_loc_before_res': 0,
+        'wake_conflict_rate_loc_before_res': 0,
+        'wake_conflict_rate_before_res': 0,
     }
 
 
 NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
 EDGE_FEATURE_DIM = 2
-RAW_STEP_EXTRA = 2400
+RAW_STEP_EXTRA = 3900
+SPAWN_GROUP_NAME_MAPPING = {
+    0: "north",
+    1: "east",
+    2: "west-tabun",
+    3: "west-sauna",
+    4: "south"
+}
 
 
 if __name__ == "__main__":
@@ -128,7 +144,7 @@ if __name__ == "__main__":
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             config=vars(args),
-            name=os.path.basename(args.model_folder or args.model_path or "eval"),
+            name=f"{args.exp_name}_{os.path.basename(args.model_folder or args.model_path)}",
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
@@ -168,6 +184,7 @@ if __name__ == "__main__":
             reward_sum = 0.0
             lifespan_sum = 0
             episode_end_info = reset_episode_counters()
+            aircraft_group_lifespans = dict()
             episode_no = 0
             times_added = 0
             total_agents = 0
@@ -176,6 +193,7 @@ if __name__ == "__main__":
 
             with tqdm(total=args.eval_episodes, unit="eps") as pbar:
                 while episode_no < args.eval_episodes or args.visualise_only:
+                    spawn_groups = [[] for _ in range(num_envs)]
                     if args.visualise_only:
                         reward_sum = 0.0
                         lifespan_sum = 0
@@ -284,6 +302,9 @@ if __name__ == "__main__":
                                 for key, value in infos[env_idx.item()][0].items():
                                     if key == "step_offset":
                                         continue
+                                    if key == "spawn_groups":
+                                        spawn_groups[env_idx] = value
+                                        continue
                                     episode_end_info[key] += value
                                 if next_active_agents.sum().item() == 0:
                                     # All agents terminated, exit the step loop early
@@ -308,6 +329,9 @@ if __name__ == "__main__":
                         for key, value in infos[env_idx.item()][0].items():
                             if key == "step_offset":
                                 continue
+                            if key == "spawn_groups":
+                                spawn_groups[env_idx] = value
+                                continue
                             episode_end_info[key] += value
 
                     # Lifespans based on valid (logical_step, env) entries
@@ -317,6 +341,14 @@ if __name__ == "__main__":
                     n_active = (agent_lifespans > 0).sum().item()
                     avg_agent_lifespan = agent_lifespans.sum() / n_active if n_active > 0 else torch.tensor(0.0, device=device)
                     lifespan_sum += avg_agent_lifespan.item()
+
+                    for idx in range(num_envs):
+                        for group, lifespan in zip(spawn_groups[idx], agent_lifespans[idx].tolist()):
+                            if lifespan == 0 or lifespan == args.num_steps:
+                                continue
+                            if group not in aircraft_group_lifespans:
+                                aircraft_group_lifespans[group] = []
+                            aircraft_group_lifespans[group].append(lifespan)
 
                     total_agents += n_active
                     episode_no += num_envs
@@ -351,6 +383,13 @@ if __name__ == "__main__":
                     }
                     for key, value in episode_end_info.items():
                         log_dict[f"metrics/{key}"] = value / episode_no
+
+                    # Log aircraft lifespan standard deviation and distribution to histogram, grouped by spawn groups
+                    for group, lifespans in aircraft_group_lifespans.items():
+                        # tmp_table = wandb.Table(data=[[lifespan] for lifespan in lifespans], columns=["lifespan"])
+                        # log_dict[f"agent_{step_x}/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-dist"] = wandb.plot.histogram(tmp_table, "lifespan", title=f"spawn-{SPAWN_GROUP_NAME_MAPPING[group]} Lifespans")
+                        log_dict[f"agent_{step_x}/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-dist"] = wandb.Histogram(lifespans)
+                        log_dict[f"metrics/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-std-dev"] = torch.FloatTensor(lifespans).std().item()
                     run.log(log_dict, step=log_step)
 
             log_step += 1

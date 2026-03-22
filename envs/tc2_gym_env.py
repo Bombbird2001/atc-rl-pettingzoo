@@ -150,17 +150,8 @@ class TC2GymEnv(gym.Env):
         values = self.sim_bridge.get_aircraft_state()
         obs = self._get_observation_from_aircraft_state(values)
 
-        info = {
-            'step_offset': 0,
-            'landing_rate': 0,
-            'aircraft_conflict_rate_no_loc': 0,
-            'mva_conflict_rate': 0,
-            'wake_conflict_rate_no_loc': 0,
-            'aircraft_conflict_rate_loc': 0,
-            'wake_conflict_rate_loc': 0,
-            'aircraft_conflict_rate': 0,
-            'wake_conflict_rate': 0,
-        }
+        # Initial info dict can be empty
+        info = {}
 
         self.episode += 1
         self.steps = 0
@@ -202,7 +193,7 @@ class TC2GymEnv(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        aircraft_state = values[9 + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
+        aircraft_state = values[14 + AIRCRAFT_COUNT + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
@@ -219,6 +210,14 @@ class TC2GymEnv(gym.Env):
             'wake_conflict_rate_loc': values[8],
             'aircraft_conflict_rate': values[4] + values[7],
             'wake_conflict_rate': values[6] + values[8],
+            'aircraft_conflict_rate_no_loc_before_res': values[9],
+            'aircraft_conflict_rate_loc_before_res': values[10],
+            'aircraft_conflict_rate_before_res': values[9] + values[10],
+            'mva_conflict_rate_before_res': values[11],
+            'wake_conflict_rate_no_loc_before_res': values[12],
+            'wake_conflict_rate_loc_before_res': values[13],
+            'wake_conflict_rate_before_res': values[12] + values[13],
+            'spawn_groups': values[14:14 + AIRCRAFT_COUNT],
         }
 
         return obs, reward, terminated, truncated, info

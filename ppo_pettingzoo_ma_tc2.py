@@ -13,7 +13,6 @@ import argparse
 import gymnasium as gym
 import joblib
 import numpy as np
-import os
 import random
 import time
 import torch
@@ -40,7 +39,7 @@ from utils.vec_envs import make_vec_env, ParallelThreadVecEnv
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"), required=True,
+    parser.add_argument("--exp-name", type=str, required=True,
                         help="the name of this experiment")
     parser.add_argument("--seed", type=int, default=777,
                         help="seed of the experiment")
@@ -412,7 +411,7 @@ if __name__ == "__main__":
                     for env_idx in torch.where(terminating_envs)[0]:
                         envs.early_reset(env_idx.item(), args.seed)
                         for key, value in infos[env_idx.item()][0].items():
-                            if key == "step_offset":
+                            if key == "step_offset" or key == "spawn_groups":
                                 continue
                             episode_end_info[key] += value
                         if next_active_agents.sum().item() == 0:
@@ -424,7 +423,7 @@ if __name__ == "__main__":
 
                 for env_idx in torch.where(next_active_agents.sum(dim=-1) > 0)[0]:
                     for key, value in infos[env_idx.item()][0].items():
-                        if key == "step_offset":
+                        if key == "step_offset" or key == "spawn_groups":
                             continue
                         episode_end_info[key] += value
 
