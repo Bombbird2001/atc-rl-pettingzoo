@@ -385,11 +385,14 @@ if __name__ == "__main__":
                         log_dict[f"metrics/{key}"] = value / episode_no
 
                     # Log aircraft lifespan standard deviation and distribution to histogram, grouped by spawn groups
+                    data_table = []
                     for group, lifespans in aircraft_group_lifespans.items():
                         # tmp_table = wandb.Table(data=[[lifespan] for lifespan in lifespans], columns=["lifespan"])
                         # log_dict[f"agent_{step_x}/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-dist"] = wandb.plot.histogram(tmp_table, "lifespan", title=f"spawn-{SPAWN_GROUP_NAME_MAPPING[group]} Lifespans")
+                        data_table.extend([[group, lifespan] for lifespan in lifespans])
                         log_dict[f"spawn/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-lifespan-dist"] = wandb.Histogram(lifespans)
                         log_dict[f"spawn/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-lifespan-std-dev"] = torch.FloatTensor(lifespans).std().item()
+                    run.summary[f"agent_{step_x}/spawn-group-lifespan"] = wandb.Table(data=data_table, columns=["group", "lifespan"])
                     run.log(log_dict, step=log_step)
 
             log_step += 1
