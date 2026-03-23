@@ -388,8 +388,8 @@ if __name__ == "__main__":
                     for group, lifespans in aircraft_group_lifespans.items():
                         # tmp_table = wandb.Table(data=[[lifespan] for lifespan in lifespans], columns=["lifespan"])
                         # log_dict[f"agent_{step_x}/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-dist"] = wandb.plot.histogram(tmp_table, "lifespan", title=f"spawn-{SPAWN_GROUP_NAME_MAPPING[group]} Lifespans")
-                        log_dict[f"agent_{step_x}/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-dist"] = wandb.Histogram(lifespans)
-                        log_dict[f"metrics/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-std-dev"] = torch.FloatTensor(lifespans).std().item()
+                        log_dict[f"spawn/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-lifespan-dist"] = wandb.Histogram(lifespans)
+                        log_dict[f"spawn/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-lifespan-std-dev"] = torch.FloatTensor(lifespans).std().item()
                     run.log(log_dict, step=log_step)
 
             log_step += 1
