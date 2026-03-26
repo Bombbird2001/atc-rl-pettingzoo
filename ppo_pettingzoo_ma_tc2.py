@@ -287,7 +287,7 @@ if __name__ == "__main__":
             gnn_preprocessor = GNNProcessor(args.edge_criteria)
         else:
             agent = Agent(
-                envs, agent_type, freeze_action=args.freeze_action_net,
+                envs, NODE_FEATURE_DIM, agent_type, freeze_action=args.freeze_action_net,
                 freeze_value=args.freeze_value_net
             ).to(device)
         model_arch = agent.rep_string()
@@ -328,7 +328,7 @@ if __name__ == "__main__":
                 if is_gnn_agent:
                     next_obs, alt_action_mask = _tensor_to_graph(next_obs)
                 else:
-                    alt_action_mask = torch.IntTensor(next_obs[:,:,-2]).unsqueeze(-1).to(device)
+                    alt_action_mask = torch.IntTensor(next_obs[:,:,-2]).to(device)
                     next_obs = torch.Tensor(next_obs).to(device)
                 next_termination = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
                 next_truncation = torch.zeros(args.num_envs, AIRCRAFT_COUNT).to(device)
@@ -342,7 +342,7 @@ if __name__ == "__main__":
                     obs = torch.zeros(
                         (args.num_steps, args.num_envs, AIRCRAFT_COUNT) + envs.single_observation_space.shape
                     ).to(device)
-                    action_masks = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT)).to(device)
+                    action_masks = torch.zeros((args.num_steps, args.num_envs, AIRCRAFT_COUNT), dtype=torch.int32).to(device)
                 actions = torch.zeros(
                     (args.num_steps, args.num_envs, AIRCRAFT_COUNT) + envs.single_action_space.shape
                 ).to(device)
@@ -379,7 +379,7 @@ if __name__ == "__main__":
                         if is_gnn_agent:
                             action, logprob, _, value = agent.get_action_and_value(next_obs, ac_mask, alt_action_mask_int=alt_action_mask)
                         else:
-                            action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-2], alt_action_mask_int=alt_action_mask)
+                            action, logprob, _, value = agent.get_action_and_value(next_obs[:,:,:-2], alt_action_mask_int=alt_action_mask.unsqueeze(-1))
                             action = action.permute((1, 2, 0))
                         values[step] = value.squeeze(dim=-1)
                     actions[step] = action
@@ -397,7 +397,7 @@ if __name__ == "__main__":
                     if is_gnn_agent:
                         next_obs, alt_action_mask = _tensor_to_graph(next_obs)
                     else:
-                        alt_action_mask = torch.IntTensor(next_obs[:,:,-2]).unsqueeze(-1).to(device)
+                        alt_action_mask = torch.IntTensor(next_obs[:,:,-2]).to(device)
                         next_obs = torch.Tensor(next_obs).to(device)
                     next_termination = torch.Tensor(termination).to(device)
                     next_truncation = torch.Tensor(truncation).to(device)
@@ -411,7 +411,7 @@ if __name__ == "__main__":
                     for env_idx in torch.where(terminating_envs)[0]:
                         envs.early_reset(env_idx.item(), args.seed)
                         for key, value in infos[env_idx.item()][0].items():
-                            if key == "step_offset" or key == "spawn_groups":
+                            if key == "step_offset" or key == "spawn_groups" or "_before_res" in key:
                                 continue
                             episode_end_info[key] += value
                         if next_active_agents.sum().item() == 0:
@@ -423,7 +423,7 @@ if __name__ == "__main__":
 
                 for env_idx in torch.where(next_active_agents.sum(dim=-1) > 0)[0]:
                     for key, value in infos[env_idx.item()][0].items():
-                        if key == "step_offset" or key == "spawn_groups":
+                        if key == "step_offset" or key == "spawn_groups" or "_before_res" in key:
                             continue
                         episode_end_info[key] += value
 
@@ -480,7 +480,7 @@ if __name__ == "__main__":
                     b_obs = obs.reshape((-1, obs.shape[3]))
                     b_masks = b_obs[:,-1].bool()
                     b_obs = b_obs[b_masks,:-2]
-                    b_action_masks = action_masks[b_masks]
+                    b_action_masks = action_masks.reshape(-1)[b_masks]
                 b_logprobs = logprobs.reshape(-1)[b_masks]
                 b_actions = actions.reshape((-1,) + envs.single_action_space.shape)[b_masks]
                 b_advantages = advantages.reshape(-1)[b_masks]
@@ -528,7 +528,7 @@ if __name__ == "__main__":
                                 )
                             else:
                                 _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                                    batch_obs, alt_action_mask_int=batch_alt_action_masks, action=batch_actions.long().transpose(0, 1)
+                                    batch_obs, alt_action_mask_int=batch_alt_action_masks.unsqueeze(-1), action=batch_actions.long().transpose(0, 1)
                                 )
                             logratio = newlogprob - batch_logprobs
                             ratio = logratio.exp()

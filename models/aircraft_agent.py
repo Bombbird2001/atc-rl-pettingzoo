@@ -1,6 +1,7 @@
 import torch
 from enum import Enum
 from models.gnn_net import GNNNet, GNNGineNet, GNNGatV2Net
+from models.mlp_net import MLPNet
 from models.model_utils import layer_init
 from torch.nn import Linear, Module
 from torch.distributions import Categorical
@@ -10,6 +11,7 @@ from torch_geometric.data import Data
 class ModelRegistry(Enum):
     GNNGatV2Net = GNNGatV2Net
     GNNGineNet = GNNGineNet
+    MLPNet = MLPNet
 
     @classmethod
     def get_model(cls, class_name: str) -> type[Module]:
@@ -21,9 +23,9 @@ class ModelRegistry(Enum):
 
 
 class Agent(Module):
-    def __init__(self, envs, latent_net_class: type[Module], freeze_action=False, freeze_value=False):
+    def __init__(self, envs, node_feature_count: int, latent_net_class: type[Module], freeze_action=False, freeze_value=False):
         super().__init__()
-        self.actor_latent = latent_net_class()
+        self.actor_latent = latent_net_class(node_feature_count)
         self.action_space_dims = envs.single_action_space.nvec
         self.actor = layer_init(Linear(64, sum(self.action_space_dims)), std=0.01)
         self.alt_dim: int = self.action_space_dims[1]
@@ -34,7 +36,7 @@ class Agent(Module):
             for param in self.actor.parameters():
                 param.requires_grad = False
 
-        self.value_latent = latent_net_class()
+        self.value_latent = latent_net_class(node_feature_count)
         self.critic = layer_init(Linear(64, 1), std=1)
 
         if freeze_value:

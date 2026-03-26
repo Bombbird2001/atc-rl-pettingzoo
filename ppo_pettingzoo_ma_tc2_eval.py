@@ -166,7 +166,7 @@ if __name__ == "__main__":
         agent = GNNAgent(envs, NODE_FEATURE_DIM, EDGE_FEATURE_DIM, agent_type).to(device)
         gnn_preprocessor = GNNProcessor(args.edge_criteria)
     else:
-        agent = Agent(envs, agent_type).to(device)
+        agent = Agent(envs, NODE_FEATURE_DIM, agent_type).to(device)
         gnn_preprocessor = None
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -238,7 +238,7 @@ if __name__ == "__main__":
                             if is_gnn_agent:
                                 action, _, _, _ = agent.get_action_and_value(next_obs, ac_mask, use_mode=True)
                             else:
-                                action, _, _, _ = agent.get_action_and_value(next_obs[:, :, :-1], use_mode=True)
+                                action, _, _, _ = agent.get_action_and_value(next_obs[:, :, :-2], use_mode=True)
                                 action = action.permute((1, 2, 0))
 
                             next_obs, reward, termination, truncation, infos = envs.step(
