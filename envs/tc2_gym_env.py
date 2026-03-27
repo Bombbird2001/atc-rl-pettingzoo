@@ -63,7 +63,7 @@ class TC2GymEnv(gym.Env):
         self.steps = 0
         self.max_steps = max_steps
         self.raw_steps = 0
-        self.max_raw_steps = max_steps + raw_step_extra
+        self.max_raw_steps = (max_steps + raw_step_extra) if max_steps is not None else None
         self.terminated_count = 0
         self.render_mode = render_mode
 

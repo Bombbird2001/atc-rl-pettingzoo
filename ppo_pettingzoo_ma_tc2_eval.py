@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument("--cuda", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--num-steps", type=int, required=True,
-                        help="the number of steps to run in each environment per policy rollout")
+                        help="the number of steps to run in each environment per policy rollout; ignored if --endless-episode")
     parser.add_argument("--num-envs", type=int, required=True,
                         help="number of parallel environments for evaluation; defaults to 1 if --visualise-only")
     parser.add_argument("--model-path", type=str, default=None,
@@ -56,7 +56,9 @@ def parse_args():
     parser.add_argument("--visualise-only", action=argparse.BooleanOptionalAction, default=False,
                         help="if true, will not automatically start simulator and will wait for user to manually start simulator for visualisation")
     parser.add_argument("--eval-episodes", type=int, default=256,
-                        help="number of episodes to run the evaluation for; ignored if --visualise-only")
+                        help="number of episodes to run the evaluation for; ignored if --visualise-only or --endless-episode")
+    parser.add_argument("--endless-episode", action=argparse.BooleanOptionalAction, default=False,
+                        help="if true, will run the episode continuously without truncation or termination")
     parser.add_argument("--track", action=argparse.BooleanOptionalAction, default=True,
                         help="if toggled, this evaluation will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default=None,
@@ -156,9 +158,9 @@ if __name__ == "__main__":
     envs = make_vec_env(
         ParallelThreadVecEnv, env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
-        init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)), max_steps=args.num_steps,
-        is_eval=True, goal_reward=0, mva_penalty=0, conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance,
-        raw_step_extra=RAW_STEP_EXTRA
+        init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)),
+        max_steps=args.num_steps if not args.endless_episode else None, is_eval=True, goal_reward=0, mva_penalty=0,
+        conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance, raw_step_extra=RAW_STEP_EXTRA
     )
 
     agent_type = ModelRegistry.get_model(args.agent_class)
@@ -193,7 +195,7 @@ if __name__ == "__main__":
             raw_step = None
 
             with tqdm(total=args.eval_episodes, unit="eps") as pbar:
-                while episode_no < args.eval_episodes or args.visualise_only:
+                while not exiting and (episode_no < args.eval_episodes or args.visualise_only or args.endless_episode):
                     spawn_groups = [[] for _ in range(num_envs)]
                     if args.visualise_only:
                         reward_sum = 0.0
@@ -230,12 +232,21 @@ if __name__ == "__main__":
                     raw_step_limit = args.num_steps + RAW_STEP_EXTRA  # allow extra sim steps; defensive cap
                     # Continue when there is at least one non-terminated env with < args.num_steps valid steps
                     terminated_envs = torch.zeros(num_envs, dtype=torch.bool, device=device)
-                    while ((env_valid_steps < args.num_steps) & ~terminated_envs).any().item():
+                    while not exiting and ((((env_valid_steps < args.num_steps) & ~terminated_envs).any().item()) or args.endless_episode):
                         # ALGO LOGIC: action logic
-                        if raw_step >= raw_step_limit:
+                        if raw_step >= raw_step_limit and not args.endless_episode:
                             print(f"Warning: raw_step exceeded cap ({raw_step_limit}); breaking episode early with termination status {terminated_envs}")
                             break
                         with torch.no_grad():
+                            if args.endless_episode and not ac_mask.any():
+                                next_obs, _, _, _, infos = envs.step(
+                                    torch.cat((
+                                        torch.zeros(ac_mask.shape + envs.single_action_space.shape, dtype=torch.long), ac_mask.unsqueeze(-1)
+                                    ), dim=-1).cpu().numpy()
+                                )
+                                ac_mask = torch.IntTensor(next_obs[:, :, -1]).to(device)
+                                continue
+
                             if is_gnn_agent:
                                 action, _, _, _ = agent.get_action_and_value(next_obs, ac_mask, use_mode=True)
                             else:
@@ -289,34 +300,33 @@ if __name__ == "__main__":
                                 )
                             else:
                                 next_obs = torch.Tensor(next_obs).to(device)
-                            next_termination = torch.Tensor(termination).to(device)
-                            next_truncation = torch.Tensor(truncation).to(device)
 
-                            next_active_agents = ac_mask - next_termination
-                            terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
-                            terminate = False
-                            for env_idx in torch.where(terminating_envs | ((env_valid_steps >= args.num_steps) & ~terminated_envs))[0]:
-                                # print("Early resetting env", env_idx.item())
-                                envs.early_reset(env_idx.item(), args.seed)
-                                terminated_envs[env_idx] = True
-                                times_added += 1
-                                for key, value in infos[env_idx.item()][0].items():
-                                    if key == "step_offset":
-                                        continue
-                                    if key == "spawn_groups":
-                                        spawn_groups[env_idx] = value
-                                        continue
-                                    episode_end_info[key] += value
-                                if next_active_agents.sum().item() == 0:
-                                    # All agents terminated, exit the step loop early
-                                    terminate = True
+                            if not args.endless_episode:
+                                next_termination = torch.Tensor(termination).to(device)
+                                next_truncation = torch.Tensor(truncation).to(device)
+                                next_active_agents = ac_mask - next_termination
+                                terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
+                                terminate = False
+                                for env_idx in torch.where(terminating_envs | ((env_valid_steps >= args.num_steps) & ~terminated_envs))[0]:
+                                    # print("Early resetting env", env_idx.item())
+                                    envs.early_reset(env_idx.item(), args.seed)
+                                    terminated_envs[env_idx] = True
+                                    times_added += 1
+                                    for key, value in infos[env_idx.item()][0].items():
+                                        if key == "step_offset":
+                                            continue
+                                        if key == "spawn_groups":
+                                            spawn_groups[env_idx] = value
+                                            continue
+                                        episode_end_info[key] += value
+                                    if next_active_agents.sum().item() == 0:
+                                        # All agents terminated, exit the step loop early
+                                        terminate = True
 
-                            if terminate or exiting:
-                                break
+                                    if terminate:
+                                        break
 
                         raw_step += 1
-                        if exiting:
-                            break
 
                     # Accumulate per-episode reward based only on valid (logical_step, env) entries
                     if step_valid.any():
@@ -364,9 +374,8 @@ if __name__ == "__main__":
                         for key, value in episode_end_info.items():
                             print(f"{key}: {value:.5f}")
 
-                    if exiting:
-                        print("Ctrl-C pressed")
-                        break
+            if exiting:
+                break
 
             if not exiting and episode_no > 0:
                 print(f"Episodes: {episode_no}, times added: {times_added}")
@@ -397,9 +406,6 @@ if __name__ == "__main__":
                     run.log(log_dict, step=log_step)
 
             log_step += 1
-
-            if exiting:
-                break
     except KeyboardInterrupt:
         print("Ctrl-C pressed")
     except:
