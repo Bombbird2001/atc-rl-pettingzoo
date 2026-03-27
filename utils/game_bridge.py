@@ -134,10 +134,11 @@ class WindowsGameBridge(GameBridge):
 class UnixGameBridge(GameBridge):
     def __create_semaphore__(self, name):
         try:
-            return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
-        except posix_ipc.ExistentialError:
             posix_ipc.unlink_semaphore(name)
-            return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
+        except posix_ipc.ExistentialError:
+            pass
+
+        return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
 
     def __init__(self, instance_suffix=""):
         try:
