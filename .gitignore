@@ -9,3 +9,4 @@ wandb
 __pycache__
 slurm_out
 common/aircraft.perf
+scripts

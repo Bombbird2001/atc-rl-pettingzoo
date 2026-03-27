@@ -360,6 +360,7 @@ if __name__ == "__main__":
                     'wake_conflict_rate_loc': 0,
                     'aircraft_conflict_rate': 0,
                     'wake_conflict_rate': 0,
+                    'clearance_change_rate': 0,
                 }
 
                 for step in range(0, args.num_steps):

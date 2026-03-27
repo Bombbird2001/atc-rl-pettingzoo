@@ -193,7 +193,7 @@ class TC2GymEnv(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        aircraft_state = values[14 + AIRCRAFT_COUNT + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
+        aircraft_state = values[15 + AIRCRAFT_COUNT + AIRCRAFT_COUNT * (len(self.action_space.nvec) + 1):]
         obs = self._get_observation_from_aircraft_state(aircraft_state)
         reward = self._get_rewards_from_aircraft_state(aircraft_state)
         terminated = self._get_terminated_from_aircraft_state(aircraft_state)
@@ -217,7 +217,8 @@ class TC2GymEnv(gym.Env):
             'wake_conflict_rate_no_loc_before_res': values[12],
             'wake_conflict_rate_loc_before_res': values[13],
             'wake_conflict_rate_before_res': values[12] + values[13],
-            'spawn_groups': values[14:14 + AIRCRAFT_COUNT],
+            'clearance_change_rate': values[14],
+            'spawn_groups': values[15:15 + AIRCRAFT_COUNT],
         }
 
         return obs, reward, terminated, truncated, info

@@ -108,6 +108,7 @@ def reset_episode_counters():
         'wake_conflict_rate_no_loc_before_res': 0,
         'wake_conflict_rate_loc_before_res': 0,
         'wake_conflict_rate_before_res': 0,
+        'clearance_change_rate': 0,
     }
 
 

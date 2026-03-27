@@ -14,11 +14,11 @@ elif os_name == "Darwin" or os_name == "Linux":
 
 class GameBridge(ABC):
     # Shared region:
-    # 4 bytes base (constant): [proceed flag(1 byte)] [close program flag(1 byte)] [step count offset(1 byte)] [1 byte padding] [proportion landed(4 bytes)] [aircraft conflict time per aircraft(4 bytes)] [MVA conflict time per aircraft(4 bytes)] [Wake conflict time per aircraft(4 bytes)]
-    # Metrics - 11 * floats, AIRCRAFT_COUNT * bytes + padding to multiple of 4 bytes
+    # 4 bytes base (constant): [proceed flag(1 byte)] [close program flag(1 byte)] [step count offset(1 byte)] [1 byte padding]
+    # Metrics - 12 * floats, AIRCRAFT_COUNT * bytes + padding to multiple of 4 bytes
     # 6 bytes per instruction: [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [validity(1 byte)] [1 byte padding]
     # + 56 bytes per aircraft: [reward(4 bytes)] [state(47 bytes (4x chars, 7x floats, 4x ints, 4x byte (for locCap, validity, terminated, altitude action masking)))] [1x byte (agent ID)] [3 bytes padding]
-    METRICS_COUNT = 11
+    METRICS_COUNT = 12
     METRICS_PADDING_COUNT = (8 - (AIRCRAFT_COUNT % 8)) % 8
     CONSTANT_FORMAT = "bbbx" + "f" * METRICS_COUNT + "b" * AIRCRAFT_COUNT + "x" * METRICS_PADDING_COUNT
     CONSTANT_SIZE = 4 * (1 + METRICS_COUNT) + AIRCRAFT_COUNT + METRICS_PADDING_COUNT
