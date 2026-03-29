@@ -120,8 +120,7 @@ RAW_STEP_EXTRA = 3900
 SPAWN_GROUP_NAME_MAPPING = {
     0: "north",
     1: "east",
-    2: "west-tabun",
-    3: "west-sauna",
+    2: "west",
     4: "south"
 }
 
@@ -245,6 +244,8 @@ if __name__ == "__main__":
                                     ), dim=-1).cpu().numpy()
                                 )
                                 ac_mask = torch.IntTensor(next_obs[:, :, -1]).to(device)
+                                if is_gnn_agent:
+                                    next_obs = _tensor_to_graph(next_obs, gnn_preprocessor, device, num_envs)
                                 continue
 
                             if is_gnn_agent:
