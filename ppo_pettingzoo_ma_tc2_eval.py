@@ -1,6 +1,8 @@
 import argparse
 import joblib
+import numpy as np
 import os
+import pandas as pd
 import re
 import random
 import signal
@@ -38,9 +40,9 @@ def parse_args():
     parser.add_argument("--cuda", action=argparse.BooleanOptionalAction, default=False,
                         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--num-steps", type=int, required=True,
-                        help="the number of steps to run in each environment per policy rollout; ignored if --endless-episode")
+                        help="the number of steps to run in each environment per policy rollout; ignored if --scripted-spawn specified")
     parser.add_argument("--num-envs", type=int, required=True,
-                        help="number of parallel environments for evaluation; defaults to 1 if --visualise-only")
+                        help="number of parallel environments for evaluation; fixed at 1 if --visualise-only")
     parser.add_argument("--model-path", type=str, default=None,
                         help="the path of the model to load (single model evaluation)")
     parser.add_argument("--model-folder", type=str, default=None,
@@ -56,9 +58,9 @@ def parse_args():
     parser.add_argument("--visualise-only", action=argparse.BooleanOptionalAction, default=False,
                         help="if true, will not automatically start simulator and will wait for user to manually start simulator for visualisation")
     parser.add_argument("--eval-episodes", type=int, default=256,
-                        help="number of episodes to run the evaluation for; ignored if --visualise-only or --endless-episode")
-    parser.add_argument("--endless-episode", action=argparse.BooleanOptionalAction, default=False,
-                        help="if true, will run the episode continuously without truncation or termination")
+                        help="number of episodes to run the evaluation for; ignored if --visualise-only; fixed at 1 if --scripted-spawn specified")
+    parser.add_argument("--scripted-spawn", type=str, default=None,
+                        help="path to CSV file containing custom aircraft spawn instructions")
     parser.add_argument("--track", action=argparse.BooleanOptionalAction, default=True,
                         help="if toggled, this evaluation will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default=None,
@@ -66,8 +68,18 @@ def parse_args():
     parser.add_argument("--wandb-entity", type=str, default=None,
                         help="the wandb entity (when --track)")
     args = parser.parse_args()
-    if args.num_envs is None and args.visualise_only:
+    if args.visualise_only:
+        if args.num_envs != 1:
+            print("--visualise-only set, setting num-envs=1")
         args.num_envs = 1
+    if args.scripted_spawn is not None:
+        if args.num_envs != 1:
+            print("--scripted-spawn specified, setting num-envs=1")
+        args.num_envs = 1
+
+        if args.eval_episodes != 1:
+            print("--scripted-spawn specified, setting eval-episodes=1")
+        args.eval_episodes = 1
     return args
 
 
@@ -129,6 +141,14 @@ if __name__ == "__main__":
     args = parse_args()
     print(args)
 
+    is_scripted_spawn = False
+    if args.scripted_spawn is not None:
+        spawns = pd.read_csv(args.scripted_spawn)
+        minimum_scripted_steps = ceil(int(spawns["spawn_timestamp"].max() - spawns["spawn_timestamp"].min() - 1) / 10)
+        args.num_steps = minimum_scripted_steps + 200
+        print(f"--scripted-spawn specified, setting num-steps={args.num_steps}")
+        is_scripted_spawn = True
+
     if args.model_path is not None:
         model_list = [(None, args.model_path)]
     elif args.model_folder is not None:
@@ -158,8 +178,9 @@ if __name__ == "__main__":
         ParallelThreadVecEnv, env_ids, make_env,
         ac_type_one_hot_encoder=joblib.load("common/recat_one_hot_encoder_v2.joblib"),
         init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)),
-        max_steps=args.num_steps if not args.endless_episode else None, is_eval=True, goal_reward=0, mva_penalty=0,
-        conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance, raw_step_extra=RAW_STEP_EXTRA
+        max_steps=args.num_steps, is_eval=True, goal_reward=0, mva_penalty=0,
+        conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance,
+        scripted_spawn_path=args.scripted_spawn, raw_step_extra=RAW_STEP_EXTRA
     )
 
     agent_type = ModelRegistry.get_model(args.agent_class)
@@ -194,8 +215,12 @@ if __name__ == "__main__":
             raw_step = None
 
             with tqdm(total=args.eval_episodes, unit="eps") as pbar:
-                while not exiting and (episode_no < args.eval_episodes or args.visualise_only or args.endless_episode):
+                while not exiting and (episode_no < args.eval_episodes or args.visualise_only):
                     spawn_groups = [[] for _ in range(num_envs)]
+                    if is_scripted_spawn:
+                        previous_ac_lifespan = [0 for _ in range(AIRCRAFT_COUNT)]
+                        scripted_ac_lifespans = []
+                        max_concurrent_ac = 0
                     if args.visualise_only:
                         reward_sum = 0.0
                         lifespan_sum = 0
@@ -231,13 +256,13 @@ if __name__ == "__main__":
                     raw_step_limit = args.num_steps + RAW_STEP_EXTRA  # allow extra sim steps; defensive cap
                     # Continue when there is at least one non-terminated env with < args.num_steps valid steps
                     terminated_envs = torch.zeros(num_envs, dtype=torch.bool, device=device)
-                    while not exiting and ((((env_valid_steps < args.num_steps) & ~terminated_envs).any().item()) or args.endless_episode):
+                    while not exiting and (((env_valid_steps < args.num_steps) & ~terminated_envs).any().item()):
                         # ALGO LOGIC: action logic
-                        if raw_step >= raw_step_limit and not args.endless_episode:
+                        if raw_step >= raw_step_limit:
                             print(f"Warning: raw_step exceeded cap ({raw_step_limit}); breaking episode early with termination status {terminated_envs}")
                             break
                         with torch.no_grad():
-                            if args.endless_episode and not ac_mask.any():
+                            if is_scripted_spawn and not ac_mask.any():
                                 next_obs, _, _, _, infos = envs.step(
                                     torch.cat((
                                         torch.zeros(ac_mask.shape + envs.single_action_space.shape, dtype=torch.long), ac_mask.unsqueeze(-1)
@@ -246,7 +271,14 @@ if __name__ == "__main__":
                                 ac_mask = torch.IntTensor(next_obs[:, :, -1]).to(device)
                                 if is_gnn_agent:
                                     next_obs = _tensor_to_graph(next_obs, gnn_preprocessor, device, num_envs)
+                                env_valid_steps[0] += 1
                                 continue
+
+                            if is_scripted_spawn:
+                                max_concurrent_ac = max(max_concurrent_ac, ac_mask.sum().item())
+
+                            if not ac_mask.any():
+                                raise ValueError("No aircraft active in state")
 
                             if is_gnn_agent:
                                 action, _, _, _ = agent.get_action_and_value(next_obs, ac_mask, use_mode=True)
@@ -263,7 +295,7 @@ if __name__ == "__main__":
                             # - new_step_count == 1: normal logical step for that env (record stats at current effective_step)
                             # - new_step_count == 0: sim step for that env (ignore for metrics)
                             # - new_step_count < 0: ignore the last |new_step_count| logical rows for that env in metrics
-                            step_offsets = [info_dict[0].get("step_offset", 0) if 0 in info_dict else -1 for info_dict in infos]
+                            step_offsets = [info_dict[0].get("step_offset", 0) if 0 in info_dict else 0 for info_dict in infos]
                             new_step_counts = [1 + step_offset for step_offset in step_offsets]
 
                             # For environments with negative offset, invalidate last |new_step_count| logical steps for that env
@@ -302,7 +334,20 @@ if __name__ == "__main__":
                             else:
                                 next_obs = torch.Tensor(next_obs).to(device)
 
-                            if not args.endless_episode:
+                            if is_scripted_spawn:
+                                # Update spawn group info for terminating/truncating aircraft
+                                # Only a single-env is expected
+                                for ac_idx in np.where((termination | truncation)[0])[0]:
+                                    spawn_groups[0].append(infos[0][0]["spawn_groups"][ac_idx])
+                                    new_lifespan = masks[:,0,ac_idx].sum().item() - previous_ac_lifespan[ac_idx]
+                                    previous_ac_lifespan[ac_idx] += new_lifespan
+                                    scripted_ac_lifespans.append(new_lifespan)
+
+                            # We start allowing termination for scripted spawns once we know all aircraft in the eval has spawned
+                            scripted_spawn_can_break_early = is_scripted_spawn and env_valid_steps[0] > minimum_scripted_steps
+                            # if env_valid_steps[0] > 8400:
+                            #     print(minimum_scripted_steps, env_valid_steps[0])
+                            if not is_scripted_spawn or scripted_spawn_can_break_early:
                                 next_termination = torch.Tensor(termination).to(device)
                                 next_truncation = torch.Tensor(truncation).to(device)
                                 next_active_agents = ac_mask - next_termination
@@ -317,7 +362,8 @@ if __name__ == "__main__":
                                         if key == "step_offset":
                                             continue
                                         if key == "spawn_groups":
-                                            spawn_groups[env_idx] = value
+                                            if not is_scripted_spawn:
+                                                spawn_groups[env_idx] = value
                                             continue
                                         episode_end_info[key] += value
                                     if next_active_agents.sum().item() == 0:
@@ -342,22 +388,30 @@ if __name__ == "__main__":
                             if key == "step_offset":
                                 continue
                             if key == "spawn_groups":
-                                spawn_groups[env_idx] = value
+                                if not is_scripted_spawn:
+                                    spawn_groups[env_idx] = value
                                 continue
                             episode_end_info[key] += value
 
-                    # Lifespans based on valid (logical_step, env) entries
-                    active_mask = masks.bool() & step_valid.unsqueeze(-1)  # (steps, num_envs, AIRCRAFT_COUNT)
-                    # If an aircraft is still active at the final step, treat its lifespan as full horizon
-                    agent_lifespans = torch.where(active_mask[-1, :, :], active_mask.shape[0], active_mask.sum(dim=0))
-                    n_active = (agent_lifespans > 0).sum().item()
-                    avg_agent_lifespan = agent_lifespans.sum() / n_active if n_active > 0 else torch.tensor(0.0, device=device)
-                    lifespan_sum += avg_agent_lifespan.item()
-
-                    for idx in range(num_envs):
-                        for group, lifespan in zip(spawn_groups[idx], agent_lifespans[idx].tolist()):
-                            if lifespan == 0 or lifespan == args.num_steps:
-                                continue
+                    if not is_scripted_spawn:
+                        # Lifespans based on valid (logical_step, env) entries
+                        active_mask = masks.bool() & step_valid.unsqueeze(-1)  # (steps, num_envs, AIRCRAFT_COUNT)
+                        # If an aircraft is still active at the final step, treat its lifespan as full horizon
+                        agent_lifespans = torch.where(active_mask[-1, :, :], active_mask.shape[0], active_mask.sum(dim=0))
+                        n_active = (agent_lifespans > 0).sum().item()
+                        avg_agent_lifespan = agent_lifespans.sum() / n_active if n_active > 0 else torch.tensor(0.0, device=device)
+                        lifespan_sum += avg_agent_lifespan.item()
+                        for idx in range(num_envs):
+                            for group, lifespan in zip(spawn_groups[idx], agent_lifespans[idx].tolist()):
+                                if lifespan == 0 or lifespan == args.num_steps:
+                                    continue
+                                if group not in aircraft_group_lifespans:
+                                    aircraft_group_lifespans[group] = []
+                                aircraft_group_lifespans[group].append(lifespan)
+                    else:
+                        n_active = len(scripted_ac_lifespans)
+                        lifespan_sum += sum(scripted_ac_lifespans) / n_active
+                        for group, lifespan in zip(spawn_groups[0], scripted_ac_lifespans):
                             if group not in aircraft_group_lifespans:
                                 aircraft_group_lifespans[group] = []
                             aircraft_group_lifespans[group].append(lifespan)
@@ -384,6 +438,8 @@ if __name__ == "__main__":
                 avg_lifespan = lifespan_sum / (episode_no // num_envs)  # iterations, each with one avg_lifespan
                 print(f"Average episode reward: {avg_reward:.3f}")
                 print(f"Average lifespan: {avg_lifespan:.3f}")
+                if is_scripted_spawn:
+                    print(f"Max concurrent aircraft: {max_concurrent_ac}")
                 for key, value in episode_end_info.items():
                     print(f"{key}: {value / episode_no:.5f}")
 
@@ -392,6 +448,8 @@ if __name__ == "__main__":
                         "episode/average_agent_reward": avg_reward,
                         "episode/average_agent_lifespan": avg_lifespan,
                     }
+                    if is_scripted_spawn:
+                        log_dict["episode/max_concurrent_aircraft"] = max_concurrent_ac
                     for key, value in episode_end_info.items():
                         log_dict[f"metrics/{key}"] = value / episode_no
 

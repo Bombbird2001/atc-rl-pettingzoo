@@ -23,9 +23,9 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 class TC2GymEnv(gym.Env):
     def __init__(
             self, ac_type_one_hot_encoder: OneHotEncoder, goal_reward: float, mva_penalty: float,
-            conflict_penalty: float, wake_penalty: float, random_spawn_chance: float, is_eval=False,
-            render_mode=None, reset_print_period=50, env_id="", init_sim=True, max_steps=300,
-            raw_step_extra=0,
+            conflict_penalty: float, wake_penalty: float, random_spawn_chance: float,
+            scripted_spawn_path: str | None = None, is_eval=False, render_mode=None, reset_print_period=50,
+            env_id="", init_sim=True, max_steps=300, raw_step_extra=0,
     ):
         super().__init__()
 
@@ -76,7 +76,7 @@ class TC2GymEnv(gym.Env):
             env_args = [
                 "java", "-jar", SIMULATOR_JAR, env_id, "1" if is_eval else "0",
                 str(goal_reward), str(mva_penalty), str(conflict_penalty), str(wake_penalty),
-                str(random_spawn_chance)
+                str(random_spawn_chance), (scripted_spawn_path if scripted_spawn_path else ""),
             ]
             self.sim_process = subprocess.Popen(env_args)
         else:
