@@ -10,6 +10,7 @@ import torch
 import traceback
 from common.constants import AIRCRAFT_COUNT
 from common.data_preprocessing import GNNProcessor
+from datetime import datetime
 from envs.tc2_gym_env import NODE_FEATURE_DIMENSION
 from envs.tc2_pettingzoo_env import make_env
 from math import ceil
@@ -61,6 +62,8 @@ def parse_args():
                         help="number of episodes to run the evaluation for; ignored if --visualise-only; fixed at 1 if --scripted-spawn specified")
     parser.add_argument("--scripted-spawn", type=str, default=None,
                         help="path to CSV file containing custom aircraft spawn instructions")
+    parser.add_argument("--log-conflicts", action=argparse.BooleanOptionalAction, default=False,
+                        help="if toggled, will log snapshot information during conflicts to CSV")
     parser.add_argument("--track", action=argparse.BooleanOptionalAction, default=True,
                         help="if toggled, this evaluation will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default=None,
@@ -128,7 +131,7 @@ def reset_episode_counters():
 
 NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
 EDGE_FEATURE_DIM = 2
-RAW_STEP_EXTRA = 3900
+RAW_STEP_EXTRA = 8500
 SPAWN_GROUP_NAME_MAPPING = {
     0: "north",
     1: "east",
@@ -180,7 +183,8 @@ if __name__ == "__main__":
         init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)),
         max_steps=args.num_steps, is_eval=True, goal_reward=0, mva_penalty=0,
         conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance,
-        scripted_spawn_path=args.scripted_spawn, raw_step_extra=RAW_STEP_EXTRA
+        scripted_spawn_path=args.scripted_spawn, raw_step_extra=RAW_STEP_EXTRA,
+        conflict_log_path=f"conflict_log/{args.exp_name}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
     )
 
     agent_type = ModelRegistry.get_model(args.agent_class)
