@@ -76,7 +76,7 @@ if __name__ == "__main__":
                 taskset_args + sim_args +
                 [
                     env_id, "0", str(goal_reward), str(mva_penalty), str(conflict_penalty),
-                    str(wake_penalty), str(random_spawn_chance)
+                    str(wake_penalty), str(random_spawn_chance), "", ""
                 ]
         )
         print("Launching", " ".join(all_args))
