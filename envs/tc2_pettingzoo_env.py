@@ -106,7 +106,7 @@ class TC2PettingZooEnv(ParallelEnv):
         observations = self._gym_observation_to_dict_observation(obs)
         # print("PZ obs:", observations)
         self.agents = list(observations.keys())
-        infos = {agent: info for agent in self.agents}
+        infos = {0: info}
 
         return observations, infos
 
@@ -121,7 +121,7 @@ class TC2PettingZooEnv(ParallelEnv):
         rewards = self._gym_reward_to_dict_reward(reward)
         terminations = self._gym_reward_to_dict_terminations(terminated)
         truncations = {agent: truncated for agent in self.agents}
-        infos = {agent: info for agent in self.possible_agents}
+        infos = {0: info}
 
         # print(observations)
         # print(rewards)

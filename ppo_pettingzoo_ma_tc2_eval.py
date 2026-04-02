@@ -131,7 +131,7 @@ def reset_episode_counters():
 
 NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
 EDGE_FEATURE_DIM = 2
-RAW_STEP_EXTRA = 8500
+RAW_STEP_EXTRA = 30000
 SPAWN_GROUP_NAME_MAPPING = {
     0: "north",
     1: "east",
@@ -218,12 +218,9 @@ if __name__ == "__main__":
             env_valid_steps = None
             raw_step = None
 
-            with tqdm(total=args.eval_episodes, unit="eps") as pbar:
+            with (tqdm(total=args.eval_episodes, unit="eps") as pbar):
                 while not exiting and (episode_no < args.eval_episodes or args.visualise_only):
-                    spawn_groups = [[] for _ in range(num_envs)]
                     if is_scripted_spawn:
-                        previous_ac_lifespan = [0 for _ in range(AIRCRAFT_COUNT)]
-                        scripted_ac_lifespans = []
                         max_concurrent_ac = 0
                     if args.visualise_only:
                         reward_sum = 0.0
@@ -235,6 +232,10 @@ if __name__ == "__main__":
 
                     # Agent lifespan tracking; indexed by logical step (0..args.num_steps-1) per env
                     masks = torch.zeros((args.num_steps, num_envs, AIRCRAFT_COUNT)).to(device)
+                    # Termination flags to indicate aircraft lifespan boundaries
+                    termination_flags = torch.zeros((args.num_steps, num_envs, AIRCRAFT_COUNT), dtype=torch.int32, device=device)
+                    # Agent spawn groups
+                    spawn_groups = torch.full((args.num_steps, num_envs, AIRCRAFT_COUNT), -1, dtype=torch.int32, device=device)
 
                     # Start the game
                     # print("Waiting reset")
@@ -294,6 +295,8 @@ if __name__ == "__main__":
                                 torch.cat((action, ac_mask.unsqueeze(-1)), dim=-1).cpu().numpy()
                             )
 
+                            next_termination = torch.Tensor(termination).to(device)
+
                             # Handle step count offsets (for conflict avoidance simulation)
                             # Per-environment semantics:
                             # - new_step_count == 1: normal logical step for that env (record stats at current effective_step)
@@ -313,7 +316,7 @@ if __name__ == "__main__":
                                         env_valid_steps[env_idx_i] = max(
                                             env_valid_steps[env_idx_i] - (end - start),
                                             torch.tensor(0, device=device),
-                                        )
+                                            )
 
                             # If at least one environment has new_step_count == 1 AND still needs steps,
                             # we record stats for those envs at their current logical step index.
@@ -321,6 +324,10 @@ if __name__ == "__main__":
                                 if nsc == 1 and env_valid_steps[env_idx_i] < args.num_steps:
                                     step_idx = env_valid_steps[env_idx_i].item()
                                     masks[step_idx, env_idx_i] = ac_mask[env_idx_i]
+                                    termination_flags[step_idx, env_idx_i] = next_termination[env_idx_i]
+                                    spawn_group_for_step = (torch.IntTensor(infos[env_idx_i][0]["spawn_groups"]) if 0 in infos[env_idx_i]
+                                                            else torch.full((AIRCRAFT_COUNT,), -1, dtype=torch.int32, device=device))
+                                    spawn_groups[step_idx, env_idx_i] = spawn_group_for_step
                                     rewards[step_idx, env_idx_i] = torch.tensor(
                                         reward[env_idx_i], device=device
                                     )
@@ -338,21 +345,11 @@ if __name__ == "__main__":
                             else:
                                 next_obs = torch.Tensor(next_obs).to(device)
 
-                            if is_scripted_spawn:
-                                # Update spawn group info for terminating/truncating aircraft
-                                # Only a single-env is expected
-                                for ac_idx in np.where((termination | truncation)[0])[0]:
-                                    spawn_groups[0].append(infos[0][0]["spawn_groups"][ac_idx])
-                                    new_lifespan = masks[:,0,ac_idx].sum().item() - previous_ac_lifespan[ac_idx]
-                                    previous_ac_lifespan[ac_idx] += new_lifespan
-                                    scripted_ac_lifespans.append(new_lifespan)
-
                             # We start allowing termination for scripted spawns once we know all aircraft in the eval has spawned
                             scripted_spawn_can_break_early = is_scripted_spawn and env_valid_steps[0] > minimum_scripted_steps
                             # if env_valid_steps[0] > 8400:
                             #     print(minimum_scripted_steps, env_valid_steps[0])
                             if not is_scripted_spawn or scripted_spawn_can_break_early:
-                                next_termination = torch.Tensor(termination).to(device)
                                 next_truncation = torch.Tensor(truncation).to(device)
                                 next_active_agents = ac_mask - next_termination
                                 terminating_envs = (next_active_agents.sum(dim=-1) == 0) & next_termination.any(dim=-1)
@@ -363,11 +360,7 @@ if __name__ == "__main__":
                                     terminated_envs[env_idx] = True
                                     times_added += 1
                                     for key, value in infos[env_idx.item()][0].items():
-                                        if key == "step_offset":
-                                            continue
-                                        if key == "spawn_groups":
-                                            if not is_scripted_spawn:
-                                                spawn_groups[env_idx] = value
+                                        if key == "step_offset" or key == "spawn_groups":
                                             continue
                                         episode_end_info[key] += value
                                     if next_active_agents.sum().item() == 0:
@@ -389,33 +382,49 @@ if __name__ == "__main__":
                     for env_idx in torch.where(~terminated_envs)[0]:
                         times_added += 1
                         for key, value in infos[env_idx.item()][0].items():
-                            if key == "step_offset":
-                                continue
-                            if key == "spawn_groups":
-                                if not is_scripted_spawn:
-                                    spawn_groups[env_idx] = value
+                            if key == "step_offset" or key == "spawn_groups":
                                 continue
                             episode_end_info[key] += value
 
+                    # Lifespans based on valid (logical_step, env) entries
+                    active_mask = masks.bool() & step_valid.unsqueeze(-1)  # (steps, num_envs, AIRCRAFT_COUNT)
                     if not is_scripted_spawn:
-                        # Lifespans based on valid (logical_step, env) entries
-                        active_mask = masks.bool() & step_valid.unsqueeze(-1)  # (steps, num_envs, AIRCRAFT_COUNT)
                         # If an aircraft is still active at the final step, treat its lifespan as full horizon
                         agent_lifespans = torch.where(active_mask[-1, :, :], active_mask.shape[0], active_mask.sum(dim=0))
                         n_active = (agent_lifespans > 0).sum().item()
                         avg_agent_lifespan = agent_lifespans.sum() / n_active if n_active > 0 else torch.tensor(0.0, device=device)
                         lifespan_sum += avg_agent_lifespan.item()
                         for idx in range(num_envs):
-                            for group, lifespan in zip(spawn_groups[idx], agent_lifespans[idx].tolist()):
+                            termination_step = torch.nonzero(spawn_groups[:,idx] > -1)[-1, 0].item()
+                            for group, lifespan in zip(spawn_groups[termination_step,idx].tolist(), agent_lifespans[idx].tolist()):
                                 if lifespan == 0 or lifespan == args.num_steps:
                                     continue
                                 if group not in aircraft_group_lifespans:
                                     aircraft_group_lifespans[group] = []
                                 aircraft_group_lifespans[group].append(lifespan)
                     else:
-                        n_active = len(scripted_ac_lifespans)
-                        lifespan_sum += sum(scripted_ac_lifespans) / n_active
-                        for group, lifespan in zip(spawn_groups[0], scripted_ac_lifespans):
+                        spawn_group_list = []
+                        lifespan_list = []
+                        # Termination flags to split lifespan
+                        for i in range(AIRCRAFT_COUNT):
+                            # Per-column tensor split - compute interval between terminations
+                            termination_steps = torch.nonzero(termination_flags[:,0,i]).squeeze(dim=-1)
+                            if termination_steps.shape[0] == 0:
+                                # If non termination flags were encountered, no lifespan to compute
+                                continue
+                            termination_step_interval = termination_steps.diff().tolist()
+                            termination_step_interval.insert(0, termination_steps[0])
+                            # print(termination_step_interval)
+                            individual_lifespans = torch.split(active_mask[:termination_steps[-1],0,i], termination_step_interval)
+                            individual_spawn_groups = torch.split(spawn_groups[:termination_steps[-1],0,i], termination_step_interval)
+                            lifespan_list.extend(map(lambda masks: masks.sum().item(), individual_lifespans))
+                            spawn_group_list.extend(map(lambda groups: groups[-1].item(), individual_spawn_groups))
+
+                        n_active = len(lifespan_list)
+                        lifespan_sum += sum(lifespan_list) / n_active
+                        if len(spawn_group_list) != len(lifespan_list):
+                            print("Spawn group count", len(spawn_group_list), "!= lifespan count", len(lifespan_list))
+                        for group, lifespan in zip(spawn_group_list, lifespan_list):
                             if group not in aircraft_group_lifespans:
                                 aircraft_group_lifespans[group] = []
                             aircraft_group_lifespans[group].append(lifespan)
