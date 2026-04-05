@@ -10,3 +10,4 @@ __pycache__
 slurm_out
 common/aircraft.perf
 scripts
+data

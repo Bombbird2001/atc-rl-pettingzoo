@@ -1,6 +1,5 @@
 import argparse
 import joblib
-import numpy as np
 import os
 import pandas as pd
 import re
@@ -126,12 +125,29 @@ def reset_episode_counters():
         'wake_conflict_rate_loc_before_res': 0,
         'wake_conflict_rate_before_res': 0,
         'clearance_change_rate': 0,
+    }, {
+        "landing_rate": [],
+        "aircraft_conflict_rate_no_loc": [],
+        "mva_conflict_rate": [],
+        "wake_conflict_rate_no_loc": [],
+        "aircraft_conflict_rate_loc": [],
+        "wake_conflict_rate_loc": [],
+        "aircraft_conflict_rate": [],
+        "wake_conflict_rate": [],
+        'aircraft_conflict_rate_no_loc_before_res': [],
+        'aircraft_conflict_rate_loc_before_res': [],
+        'aircraft_conflict_rate_before_res': [],
+        'mva_conflict_rate_before_res': [],
+        'wake_conflict_rate_no_loc_before_res': [],
+        'wake_conflict_rate_loc_before_res': [],
+        'wake_conflict_rate_before_res': [],
+        'clearance_change_rate': [],
     }
 
 
 NODE_FEATURE_DIM = NODE_FEATURE_DIMENSION
 EDGE_FEATURE_DIM = 2
-RAW_STEP_EXTRA = 30000
+RAW_STEP_EXTRA = 8000
 SPAWN_GROUP_NAME_MAPPING = {
     0: "north",
     1: "east",
@@ -210,7 +226,7 @@ if __name__ == "__main__":
             # Metrics tracker (per model)
             reward_sum = 0.0
             lifespan_sum = 0
-            episode_end_info = reset_episode_counters()
+            episode_end_info, episode_indiv_info = reset_episode_counters()
             aircraft_group_lifespans = dict()
             episode_no = 0
             times_added = 0
@@ -225,7 +241,7 @@ if __name__ == "__main__":
                     if args.visualise_only:
                         reward_sum = 0.0
                         lifespan_sum = 0
-                        episode_end_info = reset_episode_counters()
+                        episode_end_info, episode_indiv_info = reset_episode_counters()
                         episode_no = 0
                         times_added = 0
                         total_agents = 0
@@ -363,12 +379,13 @@ if __name__ == "__main__":
                                         if key == "step_offset" or key == "spawn_groups":
                                             continue
                                         episode_end_info[key] += value
+                                        episode_indiv_info[key].append(value)
                                     if next_active_agents.sum().item() == 0:
                                         # All agents terminated, exit the step loop early
                                         terminate = True
 
-                                    if terminate:
-                                        break
+                                if terminate:
+                                    break
 
                         raw_step += 1
 
@@ -385,6 +402,7 @@ if __name__ == "__main__":
                             if key == "step_offset" or key == "spawn_groups":
                                 continue
                             episode_end_info[key] += value
+                            episode_indiv_info[key].append(value)
 
                     # Lifespans based on valid (logical_step, env) entries
                     active_mask = masks.bool() & step_valid.unsqueeze(-1)  # (steps, num_envs, AIRCRAFT_COUNT)
@@ -440,7 +458,7 @@ if __name__ == "__main__":
                         print(f"Average episode reward: {avg_reward:.3f}")
                         print(f"Average lifespan: {lifespan_sum:.3f}")
                         for key, value in episode_end_info.items():
-                            print(f"{key}: {value:.5f}")
+                            print(f"{key}: {value:.6f}")
 
             if exiting:
                 break
@@ -454,7 +472,7 @@ if __name__ == "__main__":
                 if is_scripted_spawn:
                     print(f"Max concurrent aircraft: {max_concurrent_ac}")
                 for key, value in episode_end_info.items():
-                    print(f"{key}: {value / episode_no:.5f}")
+                    print(f"{key}: {value / episode_no:.6f}")
 
                 if args.track and run is not None:
                     log_dict = {
@@ -465,6 +483,10 @@ if __name__ == "__main__":
                         log_dict["episode/max_concurrent_aircraft"] = max_concurrent_ac
                     for key, value in episode_end_info.items():
                         log_dict[f"metrics/{key}"] = value / episode_no
+
+                    log_df = pd.DataFrame(episode_indiv_info)
+                    log_table = wandb.Table(dataframe=log_df)
+                    log_dict[f"agent_{step_x}/indiv-metrics"] = log_table
 
                     # Log aircraft lifespan standard deviation and distribution to histogram, grouped by spawn groups
                     data_table = []
