@@ -426,12 +426,12 @@ if __name__ == "__main__":
                                     continue
                                 if group not in aircraft_group_lifespans:
                                     aircraft_group_lifespans[group] = []
-                                aircraft_group_lifespans[group].append((lifespan, spawn_order, spawn_turn))
+                                aircraft_group_lifespans[group].append((lifespan, spawn_order, spawn_turn + lifespan - 1))
                     else:
                         spawn_group_list = []
                         lifespan_list = []
                         spawn_order_list = []
-                        spawn_turn_list = []
+                        land_turn_list = []
                         # Termination flags to split lifespan
                         for i in range(AIRCRAFT_COUNT):
                             # Per-column tensor split - compute interval between terminations
@@ -441,10 +441,6 @@ if __name__ == "__main__":
                                 continue
                             termination_step_interval = termination_steps.diff().tolist()
                             termination_step_interval.insert(0, termination_steps[0])
-                            # Get the step the previous agent terminated at
-                            prev_termination = termination_steps.tolist()
-                            prev_termination.insert(0, -1)
-                            prev_termination.pop()
                             # print(termination_step_interval)
                             individual_lifespans = torch.split(active_mask[:termination_steps[-1],0,i], termination_step_interval)
                             individual_spawn_groups = torch.split(spawn_groups[:termination_steps[-1],0,i], termination_step_interval)
@@ -452,19 +448,18 @@ if __name__ == "__main__":
                             lifespan_list.extend(map(lambda masks: masks.sum().item(), individual_lifespans))
                             spawn_group_list.extend(map(lambda groups: groups[-1].item(), individual_spawn_groups))
                             spawn_order_list.extend(map(lambda orders: orders[-1].item(), individual_spawn_order))
-                            for idx, masks in enumerate(individual_lifespans):
-                                spawn_turn_list.append(prev_termination[idx] + 1 + masks.nonzero()[0].item())
+                            land_turn_list.extend(termination_steps.tolist())
 
                         n_active = len(lifespan_list)
                         lifespan_sum += sum(lifespan_list) / n_active
                         if len(spawn_group_list) != len(lifespan_list):
                             print("Spawn group count", len(spawn_group_list), "!= lifespan count", len(lifespan_list))
-                        for group, lifespan, spawn_order, spawn_turn in zip(
-                                spawn_group_list, lifespan_list, spawn_order_list, spawn_turn_list
+                        for group, lifespan, spawn_order, land_turn in zip(
+                                spawn_group_list, lifespan_list, spawn_order_list, land_turn_list
                         ):
                             if group not in aircraft_group_lifespans:
                                 aircraft_group_lifespans[group] = []
-                            aircraft_group_lifespans[group].append((lifespan, spawn_order, spawn_turn))
+                            aircraft_group_lifespans[group].append((lifespan, spawn_order, land_turn))
 
                     total_agents += n_active
                     episode_no += num_envs
@@ -512,11 +507,11 @@ if __name__ == "__main__":
                     for group, infos in aircraft_group_lifespans.items():
                         # tmp_table = wandb.Table(data=[[lifespan] for lifespan in lifespans], columns=["lifespan"])
                         # log_dict[f"agent_{step_x}/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-dist"] = wandb.plot.histogram(tmp_table, "lifespan", title=f"spawn-{SPAWN_GROUP_NAME_MAPPING[group]} Lifespans")
-                        data_table.extend([[group, lifespan, spawn_order, spawn_turn] for lifespan, spawn_order, spawn_turn in infos])
+                        data_table.extend([[group, lifespan, spawn_order, land_turn] for lifespan, spawn_order, land_turn in infos])
                         lifespans = [lifespan for lifespan, _, _ in infos]
                         log_dict[f"spawn/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-lifespan-dist"] = wandb.Histogram(lifespans)
                         log_dict[f"spawn/spawn-{SPAWN_GROUP_NAME_MAPPING[group]}-lifespan-std-dev"] = torch.FloatTensor(lifespans).std().item()
-                    run.summary[f"agent_{step_x}/spawn-group-lifespan"] = wandb.Table(data=data_table, columns=["group", "lifespan", "spawn_order", "spawn_turn"])
+                    run.summary[f"agent_{step_x}/spawn-group-lifespan"] = wandb.Table(data=data_table, columns=["group", "lifespan", "spawn_order", "land_turn"])
                     run.log(log_dict, step=log_step)
 
             log_step += 1
