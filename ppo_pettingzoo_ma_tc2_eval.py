@@ -33,6 +33,8 @@ def parse_args():
                         help="the name of this experiment")
     parser.add_argument("--random-spawn-chance", type=float, default=0,
                         help="the probability of spawning at random heading from airport")
+    parser.add_argument("--delayed-compliance-time", type=float, default=0,
+                        help="additional time delay in adhering to clearances")
     parser.add_argument("--seed", type=int, default=777,
                         help="seed of the experiment")
     parser.add_argument("--torch-deterministic", action=argparse.BooleanOptionalAction, default=True,
@@ -199,6 +201,7 @@ if __name__ == "__main__":
         init_sim=not args.visualise_only, reset_print_period=int(ceil(args.eval_episodes / args.num_envs)),
         max_steps=args.num_steps, is_eval=True, goal_reward=0, mva_penalty=0,
         conflict_penalty=0, wake_penalty=0, random_spawn_chance=args.random_spawn_chance,
+        delayed_compliance_time=args.delayed_compliance_time,
         scripted_spawn_path=args.scripted_spawn, raw_step_extra=RAW_STEP_EXTRA,
         conflict_log_path=f"conflict_log/{args.exp_name}__{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}"
     )
@@ -252,7 +255,7 @@ if __name__ == "__main__":
                     termination_flags = torch.zeros((args.num_steps, num_envs, AIRCRAFT_COUNT), dtype=torch.int32, device=device)
                     # Agent spawn info
                     spawn_groups = torch.full((args.num_steps, num_envs, AIRCRAFT_COUNT), -1, dtype=torch.int32, device=device)
-                    spawn_order = torch.full((args.num_steps, num_envs, AIRCRAFT_COUNT), -1, dtype=torch.int32, device=device)
+                    spawn_orders = torch.full((args.num_steps, num_envs, AIRCRAFT_COUNT), -1, dtype=torch.int32, device=device)
 
                     # Start the game
                     # print("Waiting reset")
@@ -282,6 +285,7 @@ if __name__ == "__main__":
                         # ALGO LOGIC: action logic
                         if raw_step >= raw_step_limit:
                             print(f"Warning: raw_step exceeded cap ({raw_step_limit}); breaking episode early with termination status {terminated_envs}")
+                            print(infos)
                             break
                         with torch.no_grad():
                             if is_scripted_spawn and not ac_mask.any():
@@ -347,7 +351,7 @@ if __name__ == "__main__":
                                     spawn_order_for_step = (torch.IntTensor(infos[env_idx_i][0]["spawn_order"]) if 0 in infos[env_idx_i]
                                                             else torch.full((AIRCRAFT_COUNT,), -1, dtype=torch.int32, device=device))
                                     spawn_groups[step_idx, env_idx_i] = spawn_group_for_step
-                                    spawn_order[step_idx, env_idx_i] = spawn_order_for_step
+                                    spawn_orders[step_idx, env_idx_i] = spawn_order_for_step
                                     rewards[step_idx, env_idx_i] = torch.tensor(
                                         reward[env_idx_i], device=device
                                     )
@@ -418,9 +422,10 @@ if __name__ == "__main__":
                         lifespan_sum += avg_agent_lifespan.item()
                         for idx in range(num_envs):
                             termination_step = torch.nonzero(spawn_groups[:,idx] > -1)[-1, 0].item()
+                            spawn_turns = [active_mask[:,idx,ac_idx].nonzero().squeeze()[0].item() for ac_idx in range(AIRCRAFT_COUNT)]
                             for group, lifespan, spawn_order, spawn_turn in zip(
                                     spawn_groups[termination_step,idx].tolist(), agent_lifespans[idx].tolist(),
-                                    spawn_order[termination_step,idx].tolist(), active_mask[:,idx].nonzero().squeeze().tolist()
+                                    spawn_orders[termination_step,idx].tolist(), spawn_turns
                             ):
                                 if lifespan == 0 or lifespan == args.num_steps:
                                     continue
